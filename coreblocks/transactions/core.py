@@ -406,7 +406,7 @@ class _TransactionBaseStatements:
 
 
 class TransactionBase(Owned):
-    stack: ClassVar[list["TransactionBase"]] = []
+    stack: ClassVar[list[Union["Transaction", "Method"]]] = []
     comb: ClassVar[_TransactionBaseStatements] = _TransactionBaseStatements()
 
     def __init__(self):
@@ -460,21 +460,37 @@ class TransactionBase(Owned):
 
     @contextmanager
     def context(self, m: Module) -> Iterator[Self]:
-        if not TransactionBase.stack:
+        assert isinstance(self, Transaction) or isinstance(self, Method)  # for typing
+
+        parent = TransactionBase.peek()
+        if parent is None:
             assert not TransactionBase.comb.statements
+        else:
+            parent.schedule_before(self)
+
         TransactionBase.stack.append(self)
+
+        self.ctrl_stack_len = len(m._ctrl_stack) + 1  # hacky use of Amaranth internals
+
         try:
             yield self
         finally:
             TransactionBase.stack.pop()
-            if not TransactionBase.stack:
+            if parent is None:
                 m.d.comb += TransactionBase.comb
                 TransactionBase.comb.clear()
 
     @classmethod
     def get(cls) -> Self:
-        if not TransactionBase.stack:
+        ret = cls.peek()
+        if ret is None:
             raise RuntimeError("No current body")
+        return ret
+
+    @classmethod
+    def peek(cls) -> Optional[Self]:
+        if not TransactionBase.stack:
+            return None
         if not isinstance(TransactionBase.stack[-1], cls):
             raise RuntimeError(f"Current body not a {cls.__name__}")
         return TransactionBase.stack[-1]
@@ -784,9 +800,11 @@ class Method(TransactionBase):
             with Transaction.body(m):
                 ret = my_sum_method(m, {"arg1": 2, "arg2": 3})
         """
+        # hacky use of Amaranth internals
+        conditional_call = len(m._ctrl_stack) > TransactionBase.get().ctrl_stack_len
+
         enable_sig = Signal()
         arg_rec = Record.like(self.data_in)
-        conditional_call = len(m._ctrl_stack) > 1  # hacky use of Amaranth internals
 
         if arg is not None and kwargs:
             raise ValueError("Method call with both keyword arguments and legacy record argument")
@@ -797,6 +815,7 @@ class Method(TransactionBase):
         m.d.comb += enable_sig.eq(enable)
         TransactionBase.comb += assign(arg_rec, arg, fields=AssignType.ALL)
         TransactionBase.get().use_method(self, arg_rec, enable_sig, conditional_call)
+
         return self.data_out
 
     def __repr__(self) -> str:
