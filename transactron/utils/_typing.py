@@ -46,7 +46,9 @@ __all__ = [
     "RecordValueDict",
     "RecordDict",
     "ROGraph",
+    "ROLabeledGraph",
     "Graph",
+    "LabeledGraph",
     "GraphCC",
     "_ModuleBuilderDomainsLike",
     "ModuleLike",
@@ -80,7 +82,9 @@ U = TypeVar("U")
 P = ParamSpec("P")
 
 ROGraph: TypeAlias = Mapping[T, Iterable[T]]
+ROLabeledGraph: TypeAlias = Mapping[T, Mapping[T, U]]
 Graph: TypeAlias = dict[T, set[T]]
+LabeledGraph: TypeAlias = dict[T, dict[T, U]]
 GraphCC: TypeAlias = set[T]
 
 

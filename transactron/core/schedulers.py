@@ -3,13 +3,13 @@ from typing import TYPE_CHECKING
 from transactron.utils import *
 
 if TYPE_CHECKING:
-    from .manager import MethodMap, TransactionGraph, TransactionGraphCC, PriorityOrder
+    from .manager import MethodMap, ROConflictGraph, TransactionGraphCC, PriorityOrder
 
 __all__ = ["eager_deterministic_cc_scheduler", "trivial_roundrobin_cc_scheduler"]
 
 
 def eager_deterministic_cc_scheduler(
-    method_map: "MethodMap", gr: "TransactionGraph", cc: "TransactionGraphCC", porder: "PriorityOrder"
+    method_map: "MethodMap", gr: "ROConflictGraph", cc: "TransactionGraphCC", porder: "PriorityOrder"
 ) -> Module:
     """eager_deterministic_cc_scheduler
 
@@ -45,7 +45,7 @@ def eager_deterministic_cc_scheduler(
 
 
 def trivial_roundrobin_cc_scheduler(
-    method_map: "MethodMap", gr: "TransactionGraph", cc: "TransactionGraphCC", porder: "PriorityOrder"
+    method_map: "MethodMap", gr: "ROConflictGraph", cc: "TransactionGraphCC", porder: "PriorityOrder"
 ) -> Module:
     """trivial_roundrobin_cc_scheduler
 
