@@ -1,5 +1,5 @@
 from collections import defaultdict, deque
-from typing import Callable, Iterable, Sequence, TypeAlias, Tuple
+from typing import Callable, Iterable, Sequence, TypeAlias, Tuple, TypeVar
 from os import environ
 from graphlib import TopologicalSorter
 from amaranth import *
@@ -17,10 +17,14 @@ from .schedulers import eager_deterministic_cc_scheduler
 
 __all__ = ["TransactionManager", "TransactionModule"]
 
+T = TypeVar("T")
 TransactionGraph: TypeAlias = Graph["Transaction"]
+ConflictGraph: TypeAlias = LabeledGraph["Transaction", list[ValueLike]]
+ROConflictGraph: TypeAlias = ROLabeledGraph["Transaction", list[ValueLike]]
 TransactionGraphCC: TypeAlias = GraphCC["Transaction"]
 PriorityOrder: TypeAlias = dict["Transaction", int]
-TransactionScheduler: TypeAlias = Callable[["MethodMap", TransactionGraph, TransactionGraphCC, PriorityOrder], Module]
+TransactionScheduler: TypeAlias = Callable[["MethodMap", ROConflictGraph, TransactionGraphCC, PriorityOrder], Module]
+MethodEnables: TypeAlias = Mapping["Transaction", Mapping["Method", ValueLike]]
 
 
 class MethodMap:
@@ -84,7 +88,9 @@ class TransactionManager(Elaboratable):
         self.transactions.append(transaction)
 
     @staticmethod
-    def _conflict_graph(method_map: MethodMap) -> Tuple[TransactionGraph, TransactionGraph, PriorityOrder]:
+    def _conflict_graph(
+        method_map: MethodMap, method_enables: Optional[MethodEnables] = None
+    ) -> Tuple[ROConflictGraph, PriorityOrder]:
         """_conflict_graph
 
         This function generates the graph of transaction conflicts. Conflicts
@@ -110,8 +116,6 @@ class TransactionManager(Elaboratable):
         -------
         cgr : TransactionGraph
             Graph of conflicts between transactions, where vertices are transactions and edges are conflicts.
-        rgr : TransactionGraph
-            Graph of relations between transactions, which includes conflicts and orderings.
         porder : PriorityOrder
             Linear ordering of transactions which is consistent with priority constraints.
         """
@@ -128,16 +132,15 @@ class TransactionManager(Elaboratable):
 
             return False
 
-        cgr: TransactionGraph = {}  # Conflict graph
-        pgr: TransactionGraph = {}  # Priority graph
-        rgr: TransactionGraph = {}  # Relation graph
+        cgr: ConflictGraph = dict()  # Conflict graph
+        pgr: TransactionGraph = dict()  # Priority graph
 
-        def add_edge(begin: Transaction, end: Transaction, priority: Priority, conflict: bool):
-            rgr[begin].add(end)
-            rgr[end].add(begin)
-            if conflict:
-                cgr[begin].add(end)
-                cgr[end].add(begin)
+        def add_edge(
+            begin: Transaction, end: Transaction, priority: Priority, conflict: Optional[tuple[ValueLike, ValueLike]]
+        ):
+            if conflict is not None:
+                cgr[begin][end].append(conflict[0])
+                cgr[end][begin].append(conflict[1])
             match priority:
                 case Priority.LEFT:
                     pgr[end].add(begin)
@@ -145,9 +148,8 @@ class TransactionManager(Elaboratable):
                     pgr[begin].add(end)
 
         for transaction in method_map.transactions:
-            cgr[transaction] = set()
+            cgr[transaction] = defaultdict(list)
             pgr[transaction] = set()
-            rgr[transaction] = set()
 
         for method in method_map.methods:
             if method.nonexclusive:
@@ -155,7 +157,12 @@ class TransactionManager(Elaboratable):
             for transaction1 in method_map.transactions_for(method):
                 for transaction2 in method_map.transactions_for(method):
                     if transaction1 is not transaction2 and not transactions_exclusive(transaction1, transaction2):
-                        add_edge(transaction1, transaction2, Priority.UNDEFINED, True)
+                        enables = (
+                            (method_enables[transaction2][method], method_enables[transaction1][method])
+                            if method_enables is not None
+                            else (1, 1)
+                        )
+                        add_edge(transaction1, transaction2, Priority.UNDEFINED, enables)
 
         relations = [
             Relation(**relation, start=elem)
@@ -173,17 +180,17 @@ class TransactionManager(Elaboratable):
             for trans_start in method_map.transactions_for(start):
                 for trans_end in method_map.transactions_for(end):
                     conflict = relation["conflict"] and not transactions_exclusive(trans_start, trans_end)
-                    add_edge(trans_start, trans_end, relation["priority"], conflict)
+                    add_edge(trans_start, trans_end, relation["priority"], (1, 1) if conflict else None)
 
         porder: PriorityOrder = {}
 
         for k, transaction in enumerate(TopologicalSorter(pgr).static_order()):
             porder[transaction] = k
 
-        return cgr, rgr, porder
+        return cgr, porder
 
     @staticmethod
-    def _method_enables(method_map: MethodMap) -> Mapping["Transaction", Mapping["Method", ValueLike]]:
+    def _method_enables(method_map: MethodMap) -> MethodEnables:
         method_enables = defaultdict[Transaction, dict[Method, ValueLike]](dict)
         enables: list[ValueLike] = []
 
@@ -323,7 +330,8 @@ class TransactionManager(Elaboratable):
             merge_manager = self._simultaneous()
 
             method_map = MethodMap(self.transactions)
-            cgr, rgr, porder = TransactionManager._conflict_graph(method_map)
+            method_enables = self._method_enables(method_map)
+            cgr, porder = TransactionManager._conflict_graph(method_map, method_enables)
 
         m = Module()
         m.submodules.merge_manager = merge_manager
@@ -338,12 +346,10 @@ class TransactionManager(Elaboratable):
             ]
             m.d.comb += transaction.runnable.eq(Cat(ready).all())
 
-        ccs = _graph_ccs(rgr)
+        ccs = _graph_ccs(cgr)
         m.submodules._transactron_schedulers = ModuleConnector(
             *[self.cc_scheduler(method_map, cgr, cc, porder) for cc in ccs]
         )
-
-        method_enables = self._method_enables(method_map)
 
         for method, transactions in method_map.transactions_by_method.items():
             granted = Cat(transaction.grant & method_enables[transaction][method] for transaction in transactions)
@@ -367,7 +373,7 @@ class TransactionManager(Elaboratable):
         return m
 
     def print_info(
-        self, cgr: TransactionGraph, porder: PriorityOrder, ccs: list[GraphCC["Transaction"]], method_map: MethodMap
+        self, cgr: ROConflictGraph, porder: PriorityOrder, ccs: list[GraphCC["Transaction"]], method_map: MethodMap
     ):
         print("Transactron statistics")
         print(f"\tMethods: {len(method_map.methods)}")
@@ -415,7 +421,7 @@ class TransactionManager(Elaboratable):
 
     def debug_signals(self) -> SignalBundle:
         method_map = MethodMap(self.transactions)
-        cgr, _, _ = TransactionManager._conflict_graph(method_map)
+        cgr, _ = TransactionManager._conflict_graph(method_map)
 
         def transaction_debug(t: Transaction):
             return (

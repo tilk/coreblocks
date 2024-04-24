@@ -3,13 +3,13 @@ from typing import TYPE_CHECKING
 from transactron.utils import *
 
 if TYPE_CHECKING:
-    from .manager import MethodMap, TransactionGraph, TransactionGraphCC, PriorityOrder
+    from .manager import MethodMap, ROConflictGraph, TransactionGraphCC, PriorityOrder
 
 __all__ = ["eager_deterministic_cc_scheduler", "trivial_roundrobin_cc_scheduler"]
 
 
 def eager_deterministic_cc_scheduler(
-    method_map: "MethodMap", gr: "TransactionGraph", cc: "TransactionGraphCC", porder: "PriorityOrder"
+    method_map: "MethodMap", gr: "ROConflictGraph", cc: "TransactionGraphCC", porder: "PriorityOrder"
 ) -> Module:
     """eager_deterministic_cc_scheduler
 
@@ -38,14 +38,14 @@ def eager_deterministic_cc_scheduler(
     ccl = list(cc)
     ccl.sort(key=lambda transaction: porder[transaction])
     for k, transaction in enumerate(ccl):
-        conflicts = [ccl[j].grant for j in range(k) if ccl[j] in gr[transaction]]
+        conflicts = [ccl[j].grant & Cat(gr[transaction][ccl[j]]).any() for j in range(k) if ccl[j] in gr[transaction]]
         noconflict = ~Cat(conflicts).any()
         m.d.comb += transaction.grant.eq(transaction.request & transaction.runnable & noconflict)
     return m
 
 
 def trivial_roundrobin_cc_scheduler(
-    method_map: "MethodMap", gr: "TransactionGraph", cc: "TransactionGraphCC", porder: "PriorityOrder"
+    method_map: "MethodMap", gr: "ROConflictGraph", cc: "TransactionGraphCC", porder: "PriorityOrder"
 ) -> Module:
     """trivial_roundrobin_cc_scheduler
 
