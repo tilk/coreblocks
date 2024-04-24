@@ -38,7 +38,7 @@ def eager_deterministic_cc_scheduler(
     ccl = list(cc)
     ccl.sort(key=lambda transaction: porder[transaction])
     for k, transaction in enumerate(ccl):
-        conflicts = [ccl[j].grant for j in range(k) if ccl[j] in gr[transaction]]
+        conflicts = [ccl[j].grant & Cat(gr[transaction][ccl[j]]).any() for j in range(k) if ccl[j] in gr[transaction]]
         noconflict = ~Cat(conflicts).any()
         m.d.comb += transaction.grant.eq(transaction.request & transaction.runnable & noconflict)
     return m
