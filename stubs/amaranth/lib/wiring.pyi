@@ -358,7 +358,7 @@ class SignatureMembers(Mapping[str, Member]):
         """
         ...
     
-    def create(self, *, path: tuple[str | int, ...] =..., src_loc_at: int =...) -> dict[str, Any]:
+    def create(self, *, path: Optional[tuple[str | int, ...]] =..., src_loc_at: int =...) -> dict[str, Any]:
         """Create members from their descriptions.
 
         For each port member, this function creates a :class:`Signal` with the shape and reset
@@ -478,7 +478,7 @@ class FlippedSignatureMembers(Mapping[str, Member], Generic[_T_SignatureMembers]
         """
         ...
     
-    def create(self, *, path: tuple[str | int, ...] =..., src_loc_at: int =...) -> dict[str, Any]:
+    def create(self, *, path: Optional[tuple[str | int, ...]] =..., src_loc_at: int =...) -> dict[str, Any]:
         """Create members from their descriptions.
 
         For each port member, this function creates a :class:`Signal` with the shape and reset
@@ -687,7 +687,7 @@ class Signature(metaclass=SignatureMeta):
         """
         ...
     
-    def create(self, *, path: tuple[str | int, ...]=..., src_loc_at: int =...) -> AbstractInterface[Self]:
+    def create(self, *, path: Optional[tuple[str | int, ...]]=..., src_loc_at: int =...) -> AbstractInterface[Self]:
         """Create an interface object from this signature.
 
         The default :meth:`Signature.create` implementation consists of one line:
@@ -832,7 +832,7 @@ class FlippedSignature(Generic[_T_Signature]):
         """
         ...
     
-    def create(self, *args, path: tuple[str | int, ...] =..., src_loc_at: int =..., **kwargs) -> FlippedInterface:
+    def create(self, *args, path: Optional[tuple[str | int, ...]] =..., src_loc_at: int =..., **kwargs) -> FlippedInterface:
         ...
     
     def __repr__(self) -> str:
@@ -856,7 +856,7 @@ class PureInterface(Generic[_T_Signature]):
     """
     signature: _T_Signature
 
-    def __init__(self, signature: _T_Signature, *, path: tuple[str | int, ...]=..., src_loc_at: int =...) -> None:
+    def __init__(self, signature: _T_Signature, *, path: Optional[tuple[str | int, ...]]=..., src_loc_at: int =...) -> None:
         """Create attributes from a signature.
 
         The sole method defined by this helper is its constructor, which only defines
