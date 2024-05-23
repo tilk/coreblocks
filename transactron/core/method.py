@@ -1,7 +1,9 @@
 from collections.abc import Sequence
 from transactron.utils import *
+from transactron.utils._typing import AbstractInterface
 from amaranth import *
 from amaranth import tracer
+from amaranth.lib.wiring import Signature, In, Out
 from typing import Optional, Callable, Iterator, TYPE_CHECKING
 from .transaction_base import *
 from .sugar import def_method
@@ -14,7 +16,39 @@ if TYPE_CHECKING:
 __all__ = ["Method"]
 
 
-class Method(TransactionBase):
+class MethodSignature(Signature):
+    def __init__(
+        self,
+        *,
+        i: MethodLayout = (),
+        o: MethodLayout = (),
+    ):
+        self.layout_in = from_method_layout(i)
+        self.layout_out = from_method_layout(o)
+        super().__init__(
+            {"ready": In(1), "run": Out(1), "data_in": In(self.layout_in), "data_out": Out(self.layout_out)}
+        )
+
+    def create(
+        self,
+        *,
+        nonexclusive: bool = False,
+        combiner: Optional[Callable[[Module, Sequence[MethodStruct], Value], AssignArg]] = None,
+        single_caller: bool = False,
+        path: tuple[str | int, ...] = (),
+        src_loc_at: int = 0,
+    ) -> "Method":
+        return Method(
+            self,
+            nonexclusive=nonexclusive,
+            combiner=combiner,
+            single_caller=single_caller,
+            path=path,
+            src_loc=1 + src_loc_at,
+        )
+
+
+class Method(TransactionBase, AbstractInterface[MethodSignature]):
     """Transactional method.
 
     A `Method` serves to interface a module with external `Transaction`\\s
@@ -55,10 +89,10 @@ class Method(TransactionBase):
 
     def __init__(
         self,
+        signature: MethodSignature,
         *,
+        path: Optional[tuple[str | int, ...]] = None,
         name: Optional[str] = None,
-        i: MethodLayout = (),
-        o: MethodLayout = (),
         nonexclusive: bool = False,
         combiner: Optional[Callable[[Module, Sequence[MethodStruct], Value], AssignArg]] = None,
         single_caller: bool = False,
@@ -96,17 +130,18 @@ class Method(TransactionBase):
         super().__init__(src_loc=get_src_loc(src_loc))
 
         def default_combiner(m: Module, args: Sequence[MethodStruct], runs: Value) -> AssignArg:
-            ret = Signal(from_method_layout(i))
+            ret = Signal(signature.layout_in)
             for k in OneHotSwitchDynamic(m, runs):
                 m.d.comb += ret.eq(args[k])
             return ret
 
+        self.signature = signature
         self.owner, owner_name = get_caller_class_name(default="$method")
         self.name = name or tracer.get_var_name(depth=2, default=owner_name)
         self.ready = Signal(name=self.owned_name + "_ready")
         self.run = Signal(name=self.owned_name + "_run")
-        self.data_in: MethodStruct = Signal(from_method_layout(i))
-        self.data_out: MethodStruct = Signal(from_method_layout(o))
+        self.data_in: MethodStruct = Signal(signature.layout_in)
+        self.data_out: MethodStruct = Signal(signature.layout_out)
         self.nonexclusive = nonexclusive
         self.combiner: Callable[[Module, Sequence[MethodStruct], Value], AssignArg] = combiner or default_combiner
         self.single_caller = single_caller
@@ -144,7 +179,7 @@ class Method(TransactionBase):
         Method
             The freshly constructed `Method`.
         """
-        return Method(name=name, i=other.layout_in, o=other.layout_out, src_loc=get_src_loc(src_loc))
+        return Method(other.signature, name=name, src_loc=get_src_loc(src_loc))
 
     def proxy(self, m: "TModule", method: "Method"):
         """Define as a proxy for another method.
