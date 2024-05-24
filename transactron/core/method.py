@@ -13,7 +13,7 @@ from transactron.utils.assign import AssignArg
 if TYPE_CHECKING:
     from .tmodule import TModule
 
-__all__ = ["Method"]
+__all__ = ["MethodSignature", "Method"]
 
 
 class MethodSignature(Signature):
