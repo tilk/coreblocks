@@ -427,7 +427,11 @@ class SingleCallerTestCircuit(Elaboratable):
     def elaborate(self, platform):
         m = TModule()
 
-        method = Method(single_caller=True)
+        method = Method()
+
+        @def_method(m, method, single_caller=True)
+        def _():
+            pass
 
         with Transaction().body(m):
             method(m)

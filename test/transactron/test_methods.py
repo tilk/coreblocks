@@ -504,9 +504,9 @@ class NonexclusiveMethodCircuit(Elaboratable):
         self.running = Signal()
         self.data = Signal(WIDTH)
 
-        method = Method(o=data_layout(WIDTH), nonexclusive=True)
+        method = Method(o=data_layout(WIDTH))
 
-        @def_method(m, method, self.ready)
+        @def_method(m, method, self.ready, nonexclusive=True)
         def _():
             m.d.comb += self.running.eq(1)
             return {"data": self.data}
@@ -624,9 +624,9 @@ class CustomCombinerMethodCircuit(Elaboratable):
                 result = result ^ Mux(runs[i], v.data, 0)
             return {"data": result}
 
-        method = Method(i=data_layout(WIDTH), o=data_layout(WIDTH), nonexclusive=True, combiner=combiner)
+        method = Method(i=data_layout(WIDTH), o=data_layout(WIDTH))
 
-        @def_method(m, method, self.ready)
+        @def_method(m, method, self.ready, nonexclusive=True, combiner=combiner)
         def _(data: Value):
             m.d.comb += self.running.eq(1)
             return {"data": data}

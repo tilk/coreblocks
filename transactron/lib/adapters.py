@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Unpack
 from amaranth import *
 from amaranth.lib.wiring import Component, In, Out
 from amaranth.lib.data import StructLayout, View
@@ -8,10 +8,15 @@ from ..core import *
 from ..utils._typing import type_self_kwargs_as, SignalBundle
 
 __all__ = [
+    "AdapterInfoDict",
     "AdapterBase",
     "AdapterTrans",
     "Adapter",
 ]
+
+
+class AdapterInfoDict(MethodInfoDictCommon, total=False):
+    with_validate_arguments: bool
 
 
 class AdapterBase(Component):
@@ -110,11 +115,24 @@ class Adapter(AdapterBase):
         iface = Method(**kwargs)
         super().__init__(iface, iface.layout_out, iface.layout_in)
         self.validators: list[tuple[View[StructLayout], Signal]] = []
-        self.with_validate_arguments: bool = False
+        self._def_method_kwargs: MethodInfoDict = {}
 
-    def set(self, with_validate_arguments: Optional[bool]):
-        if with_validate_arguments is not None:
-            self.with_validate_arguments = with_validate_arguments
+    def set(self, **kwargs: Unpack[AdapterInfoDict]):
+        if "with_validate_arguments" in kwargs:
+            if kwargs["with_validate_arguments"]:
+
+                def validate_arguments(arg: "View[StructLayout]"):
+                    ret = Signal()
+                    self.validators.append((arg, ret))
+                    return ret
+
+                self._def_method_kwargs["validate_arguments"] = validate_arguments
+
+            del kwargs["with_validate_arguments"]
+
+        for key in kwargs:
+            self._def_method_kwargs[key] = kwargs[key]
+
         return self
 
     def elaborate(self, platform):
@@ -124,18 +142,7 @@ class Adapter(AdapterBase):
         data_in = Signal.like(self.data_in)
         m.d.comb += data_in.eq(self.data_in)
 
-        kwargs = {}
-
-        if self.with_validate_arguments:
-
-            def validate_arguments(arg: "View[StructLayout]"):
-                ret = Signal()
-                self.validators.append((arg, ret))
-                return ret
-
-            kwargs["validate_arguments"] = validate_arguments
-
-        @def_method(m, self.iface, ready=self.en, **kwargs)
+        @def_method(m, self.iface, ready=self.en, **self._def_method_kwargs)
         def _(arg):
             m.d.top_comb += self.data_out.eq(arg)
             m.d.comb += self.done.eq(1)

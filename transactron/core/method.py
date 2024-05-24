@@ -1,19 +1,20 @@
 from collections.abc import Sequence
 from ctypes import ArgumentError
 from transactron.utils import *
+from transactron.utils._typing import AbstractInterface
 from amaranth import *
 from amaranth import tracer
 from amaranth.lib.wiring import PureInterface, Signature, In, Out
-from typing import Optional, Callable, Iterator, TYPE_CHECKING
+from typing import Optional, Callable, Iterator, TYPE_CHECKING, TypedDict, Unpack
 from .transaction_base import *
-from .sugar import def_method
 from contextlib import contextmanager
 from transactron.utils.assign import AssignArg
+from .sugar import def_method
 
 if TYPE_CHECKING:
     from .tmodule import TModule
 
-__all__ = ["MethodSignature", "Method"]
+__all__ = ["MethodSignature", "MethodInfoDictCommon", "MethodInfoDict", "MethodInfo", "Method"]
 
 
 class MethodSignature(Signature):
@@ -26,29 +27,54 @@ class MethodSignature(Signature):
         self.layout_in = from_method_layout(i)
         self.layout_out = from_method_layout(o)
         super().__init__(
-            {"ready": In(1), "run": Out(1), "data_in": In(self.layout_in), "data_out": Out(self.layout_out)}
+            {"ready": Out(1), "run": In(1), "data_in": In(self.layout_in), "data_out": Out(self.layout_out)}
         )
 
     def create(
         self,
         *,
-        nonexclusive: bool = False,
-        combiner: Optional[Callable[[Module, Sequence[MethodStruct], Value], AssignArg]] = None,
-        single_caller: bool = False,
-        path: tuple[str | int, ...] = (),
+        path: Optional[tuple[str | int, ...]] = None,
         src_loc_at: int = 0,
     ) -> "Method":
         return Method(
             self,
-            nonexclusive=nonexclusive,
-            combiner=combiner,
-            single_caller=single_caller,
             path=path,
             src_loc=1 + src_loc_at,
         )
 
 
-class Method(TransactionBase, PureInterface):
+class MethodInfoDictCommon(TypedDict, total=False):
+    nonexclusive: bool
+    combiner: Callable[[Module, Sequence[MethodStruct], Value], AssignArg]
+    single_caller: bool
+
+
+class MethodInfoDict(MethodInfoDictCommon, total=False):
+    validate_arguments: Callable[..., ValueLike]
+
+
+class MethodInfo:
+    def __init__(self, signature: MethodSignature, **kwargs: Unpack[MethodInfoDict]):
+        def default_combiner(m: Module, args: Sequence[MethodStruct], runs: Value) -> AssignArg:
+            ret = Signal(signature.layout_in)
+            for k in OneHotSwitchDynamic(m, runs):
+                m.d.comb += ret.eq(args[k])
+            return ret
+
+        defaults: MethodInfoDict = {"nonexclusive": False, "combiner": default_combiner, "single_caller": False}
+        kwargs = {**defaults, **kwargs}
+
+        self.nonexclusive: bool = kwargs["nonexclusive"]
+        self.combiner: Callable[[Module, Sequence[MethodStruct], Value], AssignArg] = kwargs["combiner"]
+        self.single_caller: bool = kwargs["single_caller"]
+        self.validate_arguments: Optional[Callable[..., ValueLike]] = (
+            kwargs["validate_arguments"] if "validate_arguments" in kwargs else None
+        )
+        if self.nonexclusive:
+            assert signature.layout_in.size == 0 or self.combiner != default_combiner
+
+
+class Method(TransactionBase, PureInterface, AbstractInterface[MethodSignature]):
     """Transactional method.
 
     A `Method` serves to interface a module with external `Transaction`\\s
@@ -101,9 +127,6 @@ class Method(TransactionBase, PureInterface):
         o: Optional[MethodLayout] = None,
         path: Optional[tuple[str | int, ...]] = None,
         name: Optional[str] = None,
-        nonexclusive: bool = False,
-        combiner: Optional[Callable[[Module, Sequence[MethodStruct], Value], AssignArg]] = None,
-        single_caller: bool = False,
         src_loc: int | SrcLoc = 0,
     ):
         """
@@ -116,21 +139,6 @@ class Method(TransactionBase, PureInterface):
             The format of `data_in`.
         o: method layout
             The format of `data_out`.
-        nonexclusive: bool
-            If true, the method is non-exclusive: it can be called by multiple
-            transactions in the same clock cycle. If such a situation happens,
-            the method still is executed only once, and each of the callers
-            receive its output. Nonexclusive methods cannot have inputs.
-        combiner: (Module, Sequence[MethodStruct], Value) -> AssignArg
-            If `nonexclusive` is true, the combiner function combines the
-            arguments from multiple calls to this method into a single
-            argument, which is passed to the method body. The third argument
-            is a bit vector, whose n-th bit is 1 if the n-th call is active
-            in a given cycle.
-        single_caller: bool
-            If true, this method is intended to be called from a single
-            transaction. An error will be thrown if called from multiple
-            transactions.
         src_loc: int | SrcLoc
             How many stack frames deep the source location is taken from.
             Alternatively, the source location to use instead of the default.
@@ -151,19 +159,6 @@ class Method(TransactionBase, PureInterface):
         TransactionBase.__init__(self, src_loc=get_src_loc(src_loc))
         PureInterface.__init__(self, signature, path=path)
 
-        def default_combiner(m: Module, args: Sequence[MethodStruct], runs: Value) -> AssignArg:
-            ret = Signal(signature.layout_in)
-            for k in OneHotSwitchDynamic(m, runs):
-                m.d.comb += ret.eq(args[k])
-            return ret
-
-        self.nonexclusive = nonexclusive
-        self.combiner: Callable[[Module, Sequence[MethodStruct], Value], AssignArg] = combiner or default_combiner
-        self.single_caller = single_caller
-        self.validate_arguments: Optional[Callable[..., ValueLike]] = None
-        if nonexclusive:
-            assert len(self.data_in.as_value()) == 0 or combiner is not None
-
     @property
     def layout_in(self):
         return self.data_in.shape()
@@ -171,6 +166,12 @@ class Method(TransactionBase, PureInterface):
     @property
     def layout_out(self):
         return self.data_out.shape()
+
+    @property
+    def info(self):
+        if not self.defined:
+            raise RuntimeError(f"Method '{self.name}' not defined")
+        return self._info
 
     @staticmethod
     def like(other: "Method", *, name: Optional[str] = None, src_loc: int | SrcLoc = 0) -> "Method":
@@ -216,12 +217,7 @@ class Method(TransactionBase, PureInterface):
 
     @contextmanager
     def body(
-        self,
-        m: "TModule",
-        *,
-        ready: ValueLike = C(1),
-        out: ValueLike = C(0, 0),
-        validate_arguments: Optional[Callable[..., ValueLike]] = None,
+        self, m: "TModule", *, ready: ValueLike = C(1), out: ValueLike = C(0, 0), **kwargs: Unpack[MethodInfoDict]
     ) -> Iterator[MethodStruct]:
         """Define method body
 
@@ -251,6 +247,22 @@ class Method(TransactionBase, PureInterface):
             It instantiates a combinational circuit for each
             method caller. By default, there is no function, so all arguments
             are accepted.
+        nonexclusive: bool
+            If true, the method is non-exclusive: it can be called by multiple
+            transactions in the same clock cycle. If such a situation happens,
+            the method still is executed only once, and each of the callers
+            receive its output. Nonexclusive methods can have inputs only
+            if a combiner is defined.
+        combiner: (Module, Sequence[MethodStruct], Value) -> AssignArg
+            If `nonexclusive` is true, the combiner function combines the
+            arguments from multiple calls to this method into a single
+            argument, which is passed to the method body. The third argument
+            is a bit vector, whose n-th bit is 1 if the n-th call is active
+            in a given cycle.
+        single_caller: bool
+            If true, this method is intended to be called from a single
+            transaction. An error will be thrown if called from multiple
+            transactions.
 
         Returns
         -------
@@ -272,7 +284,8 @@ class Method(TransactionBase, PureInterface):
         if self.defined:
             raise RuntimeError(f"Method '{self.name}' already defined")
         self.def_order = next(TransactionBase.def_counter)
-        self.validate_arguments = validate_arguments
+
+        self._info = MethodInfo(self.signature, **kwargs)
 
         m.d.av_comb += self.ready.eq(ready)
         m.d.top_comb += self.data_out.eq(out)
@@ -281,8 +294,8 @@ class Method(TransactionBase, PureInterface):
                 yield self.data_in
 
     def _validate_arguments(self, arg_rec: MethodStruct) -> ValueLike:
-        if self.validate_arguments is not None:
-            return self.ready & method_def_helper(self, self.validate_arguments, arg_rec)
+        if self.info.validate_arguments is not None:
+            return self.ready & method_def_helper(self, self.info.validate_arguments, arg_rec)
         return self.ready
 
     def __call__(

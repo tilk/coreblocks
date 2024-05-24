@@ -40,7 +40,7 @@ class RetirementTestCircuit(Elaboratable):
         )
 
         m.submodules.mock_rob_peek = self.mock_rob_peek = TestbenchIO(
-            Adapter(o=rob_layouts.peek_layout, nonexclusive=True)
+            Adapter(o=rob_layouts.peek_layout).set(nonexclusive=True)
         )
 
         m.submodules.mock_rob_retire = self.mock_rob_retire = TestbenchIO(Adapter())
@@ -48,7 +48,7 @@ class RetirementTestCircuit(Elaboratable):
         m.submodules.mock_rf_free = self.mock_rf_free = TestbenchIO(Adapter(i=rf_layouts.rf_free))
 
         m.submodules.mock_exception_cause = self.mock_exception_cause = TestbenchIO(
-            Adapter(o=exception_layouts.get, nonexclusive=True)
+            Adapter(o=exception_layouts.get).set(nonexclusive=True)
         )
         m.submodules.mock_exception_clear = self.mock_exception_clear = TestbenchIO(Adapter())
 

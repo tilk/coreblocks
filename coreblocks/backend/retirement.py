@@ -56,10 +56,10 @@ class Retirement(Elaboratable):
         )
 
         self.dependency_manager = DependencyContext.get()
-        self.core_state = Method(o=self.gen_params.get(RetirementLayouts).core_state, nonexclusive=True)
+        self.core_state = Method(o=self.gen_params.get(RetirementLayouts).core_state)
         self.dependency_manager.add_dependency(CoreStateKey(), self.core_state)
 
-        self.precommit = Method(o=self.gen_params.get(RetirementLayouts).precommit, nonexclusive=True)
+        self.precommit = Method(o=self.gen_params.get(RetirementLayouts).precommit)
         self.dependency_manager.add_dependency(InstructionPrecommitKey(), self.precommit)
 
     def elaborate(self, platform):
@@ -223,11 +223,11 @@ class Retirement(Elaboratable):
         # Disable executing any side effects from instructions in core when it is flushed
         m.d.comb += side_fx.eq(~fsm.ongoing("TRAP_FLUSH"))
 
-        @def_method(m, self.core_state)
+        @def_method(m, self.core_state, nonexclusive=True)
         def _():
             return {"flushing": core_flushing}
 
-        @def_method(m, self.precommit)
+        @def_method(m, self.precommit, nonexclusive=True)
         def _():
             rob_entry = self.rob_peek(m)
             return {"rob_id": rob_entry.rob_id, "side_fx": side_fx}
