@@ -1,9 +1,9 @@
 from collections.abc import Sequence
+from ctypes import ArgumentError
 from transactron.utils import *
-from transactron.utils._typing import AbstractInterface
 from amaranth import *
 from amaranth import tracer
-from amaranth.lib.wiring import Signature, In, Out
+from amaranth.lib.wiring import PureInterface, Signature, In, Out
 from typing import Optional, Callable, Iterator, TYPE_CHECKING
 from .transaction_base import *
 from .sugar import def_method
@@ -48,7 +48,7 @@ class MethodSignature(Signature):
         )
 
 
-class Method(TransactionBase, AbstractInterface[MethodSignature]):
+class Method(TransactionBase, PureInterface):
     """Transactional method.
 
     A `Method` serves to interface a module with external `Transaction`\\s
@@ -87,10 +87,18 @@ class Method(TransactionBase, AbstractInterface[MethodSignature]):
         calling `body`.
     """
 
+    signature: MethodSignature
+    ready: Signal
+    run: Signal
+    data_in: MethodStruct
+    data_out: MethodStruct
+
     def __init__(
         self,
-        signature: MethodSignature,
+        signature: Optional[MethodSignature] = None,
         *,
+        i: Optional[MethodLayout] = None,
+        o: Optional[MethodLayout] = None,
         path: Optional[tuple[str | int, ...]] = None,
         name: Optional[str] = None,
         nonexclusive: bool = False,
@@ -127,7 +135,21 @@ class Method(TransactionBase, AbstractInterface[MethodSignature]):
             How many stack frames deep the source location is taken from.
             Alternatively, the source location to use instead of the default.
         """
-        super().__init__(src_loc=get_src_loc(src_loc))
+        self.owner, owner_name = get_caller_class_name(default="$method")
+        self.name = name or tracer.get_var_name(depth=2, default=owner_name)
+
+        if path is None:
+            path = (self.owned_name,)
+
+        # TODO: this is for backward compatibility, remove later
+        if signature is not None and (i is not None or o is not None):
+            raise ArgumentError("")
+        if signature is None:
+            signature = MethodSignature(i=i or (), o=o or ())
+        self.signature = signature
+
+        TransactionBase.__init__(self, src_loc=get_src_loc(src_loc))
+        PureInterface.__init__(self, signature, path=path)
 
         def default_combiner(m: Module, args: Sequence[MethodStruct], runs: Value) -> AssignArg:
             ret = Signal(signature.layout_in)
@@ -135,13 +157,6 @@ class Method(TransactionBase, AbstractInterface[MethodSignature]):
                 m.d.comb += ret.eq(args[k])
             return ret
 
-        self.signature = signature
-        self.owner, owner_name = get_caller_class_name(default="$method")
-        self.name = name or tracer.get_var_name(depth=2, default=owner_name)
-        self.ready = Signal(name=self.owned_name + "_ready")
-        self.run = Signal(name=self.owned_name + "_run")
-        self.data_in: MethodStruct = Signal(signature.layout_in)
-        self.data_out: MethodStruct = Signal(signature.layout_out)
         self.nonexclusive = nonexclusive
         self.combiner: Callable[[Module, Sequence[MethodStruct], Value], AssignArg] = combiner or default_combiner
         self.single_caller = single_caller
