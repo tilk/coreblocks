@@ -66,7 +66,7 @@ class ExceptionCauseRegister(Elaboratable):
         dm = DependencyContext.get()
         dm.add_dependency(ExceptionReportKey(), self.report)
 
-        self.get = Method(o=self.layouts.get, nonexclusive=True)
+        self.get = Method(o=self.layouts.get)
 
         self.clear = Method()
 
@@ -107,7 +107,7 @@ class ExceptionCauseRegister(Elaboratable):
             # In case of any reported exception, core will need to be flushed. Fetch can be stalled immediately
             self.fetch_stall_exception(m)
 
-        @def_method(m, self.get)
+        @def_method(m, self.get, nonexclusive=True)
         def _():
             return {"rob_id": self.rob_id, "cause": self.cause, "pc": self.pc, "valid": self.valid}
 

@@ -10,7 +10,7 @@ from transactron.utils.transactron_helpers import _graph_ccs
 from transactron.graph import OwnershipGraph, Direction
 
 from .transaction_base import TransactionBase, TransactionOrMethod, Priority, Relation
-from .method import Method
+from .method import Method, MethodInfo
 from .transaction import Transaction, TransactionManagerKey
 from .tmodule import TModule
 from .schedulers import eager_deterministic_cc_scheduler
@@ -144,7 +144,7 @@ class TransactionManager(Elaboratable):
             pgr[transaction] = set()
 
         for method in method_map.methods:
-            if method.nonexclusive:
+            if method.info.nonexclusive:
                 continue
             for transaction1 in method_map.transactions_for(method):
                 for transaction2 in method_map.transactions_for(method):
@@ -290,6 +290,7 @@ class TransactionManager(Elaboratable):
             method.relations = transaction.relations
             method.def_order = transaction.def_order
             method.ctrl_path = transaction.ctrl_path
+            method._info = MethodInfo(method.signature)
             methods[transaction] = method
 
         for elem in method_map.methods_and_transactions:
@@ -349,11 +350,13 @@ class TransactionManager(Elaboratable):
             if len(method_args[method]) == 1:
                 m.d.comb += method.data_in.eq(method_args[method][0])
             else:
-                if method.single_caller:
+                if method.info.single_caller:
                     raise RuntimeError(f"Single-caller method '{method.name}' called more than once")
 
                 runs = Cat(method_runs[method])
-                m.d.comb += assign(method.data_in, method.combiner(m, method_args[method], runs), fields=AssignType.ALL)
+                m.d.comb += assign(
+                    method.data_in, method.info.combiner(m, method_args[method], runs), fields=AssignType.ALL
+                )
 
         if "TRANSACTRON_VERBOSE" in environ:
             self.print_info(cgr, porder, ccs, method_map)

@@ -1,21 +1,16 @@
 from amaranth import *
-from typing import TYPE_CHECKING, Optional, Callable
+from typing import TYPE_CHECKING, Optional, Callable, Unpack
 from transactron.utils import *
 from transactron.utils.assign import AssignArg
 
 if TYPE_CHECKING:
     from .tmodule import TModule
-    from .method import Method
+    from .method import Method, MethodInfoDict
 
 __all__ = ["def_method"]
 
 
-def def_method(
-    m: "TModule",
-    method: "Method",
-    ready: ValueLike = C(1),
-    validate_arguments: Optional[Callable[..., ValueLike]] = None,
-):
+def def_method(m: "TModule", method: "Method", ready: ValueLike = C(1), **kwargs: Unpack["MethodInfoDict"]):
     """Define a method.
 
     This decorator allows to define transactional methods in an
@@ -81,7 +76,7 @@ def def_method(
         out = Signal(method.layout_out)
         ret_out = None
 
-        with method.body(m, ready=ready, out=out, validate_arguments=validate_arguments) as arg:
+        with method.body(m, ready=ready, out=out, **kwargs) as arg:
             ret_out = method_def_helper(method, func, arg)
 
         if ret_out is not None:

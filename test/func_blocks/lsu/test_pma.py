@@ -65,7 +65,7 @@ class PMAIndirectTestCircuit(Elaboratable):
         DependencyContext.get().add_dependency(ExceptionReportKey(), self.exception_report.adapter.iface)
 
         m.submodules.precommit = self.precommit = TestbenchIO(
-            Adapter(o=self.gen.get(RetirementLayouts).precommit, nonexclusive=True)
+            Adapter(o=self.gen.get(RetirementLayouts).precommit).set(nonexclusive=True)
         )
         DependencyContext.get().add_dependency(InstructionPrecommitKey(), self.precommit.adapter.iface)
 

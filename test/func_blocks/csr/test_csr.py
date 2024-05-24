@@ -25,7 +25,7 @@ class CSRUnitTestCircuit(Elaboratable):
         m = Module()
 
         m.submodules.precommit = self.precommit = TestbenchIO(
-            Adapter(o=self.gen_params.get(RetirementLayouts).precommit, nonexclusive=True)
+            Adapter(o=self.gen_params.get(RetirementLayouts).precommit).set(nonexclusive=True)
         )
         DependencyContext.get().add_dependency(InstructionPrecommitKey(), self.precommit.adapter.iface)
 
