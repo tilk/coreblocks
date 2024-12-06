@@ -5,9 +5,9 @@ from coreblocks.func_blocks.fu.fpu.fpu_common import (
 )
 from transactron import TModule
 from transactron.lib import AdapterTrans
-from parameterized import parameterized
 from transactron.testing import *
 from amaranth import *
+import pytest
 
 
 class TestFPURounding(TestCaseWithSimulator):
@@ -52,7 +52,7 @@ class TestFPURounding(TestCaseWithSimulator):
     round_down_inc_array = [0, 0, 0, 0, 0, 1, 1, 1]
     round_zero_inc_array = [0, 0, 0, 0, 0, 0, 0, 0]
 
-    @parameterized.expand(
+    @pytest.mark.parametrize("params, help_values, rm, inc_arr",
         [
             (
                 params,

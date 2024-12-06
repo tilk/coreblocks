@@ -1,4 +1,4 @@
-from parameterized import parameterized_class
+import pytest
 
 from coreblocks.arch import Funct3, Funct7, OpType
 from coreblocks.func_blocks.fu.mul_unit import MulFn, MulComponent, MulType
@@ -8,8 +8,18 @@ from transactron.utils import signed_to_int, int_to_signed
 from test.func_blocks.fu.functional_common import ExecFn, FunctionalUnitTestCase
 
 
-@parameterized_class(
-    ("name", "func_unit"),
+class TestMultiplierUnit(FunctionalUnitTestCase[MulFn.Fn]):
+    ops = {
+        MulFn.Fn.MUL: ExecFn(OpType.MUL, Funct3.MUL, Funct7.MULDIV),
+        MulFn.Fn.MULH: ExecFn(OpType.MUL, Funct3.MULH, Funct7.MULDIV),
+        MulFn.Fn.MULHU: ExecFn(OpType.MUL, Funct3.MULHU, Funct7.MULDIV),
+        MulFn.Fn.MULHSU: ExecFn(OpType.MUL, Funct3.MULHSU, Funct7.MULDIV),
+        #  Prepared for RV64
+        #
+        #  MulFn.Fn.MULW: ExecFn(OpType.ARITHMETIC_W, Funct3.MULW, Funct7.MULDIV),
+    }
+    
+    @pytest.fixture(ids=lambda t: t[0], params=
     [
         (
             "recursive_multiplier",
@@ -24,17 +34,9 @@ from test.func_blocks.fu.functional_common import ExecFn, FunctionalUnitTestCase
             MulComponent(MulType.SHIFT_MUL),
         ),
     ],
-)
-class TestMultiplierUnit(FunctionalUnitTestCase[MulFn.Fn]):
-    ops = {
-        MulFn.Fn.MUL: ExecFn(OpType.MUL, Funct3.MUL, Funct7.MULDIV),
-        MulFn.Fn.MULH: ExecFn(OpType.MUL, Funct3.MULH, Funct7.MULDIV),
-        MulFn.Fn.MULHU: ExecFn(OpType.MUL, Funct3.MULHU, Funct7.MULDIV),
-        MulFn.Fn.MULHSU: ExecFn(OpType.MUL, Funct3.MULHSU, Funct7.MULDIV),
-        #  Prepared for RV64
-        #
-        #  MulFn.Fn.MULW: ExecFn(OpType.ARITHMETIC_W, Funct3.MULW, Funct7.MULDIV),
-    }
+    )
+    def func_unit(self, request):
+        return request.param[1]
 
     @staticmethod
     def compute_result(i1: int, i2: int, i_imm: int, pc: int, fn: MulFn.Fn, xlen: int) -> dict[str, int]:

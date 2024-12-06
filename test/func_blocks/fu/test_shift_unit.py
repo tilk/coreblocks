@@ -1,3 +1,4 @@
+import pytest
 from coreblocks.arch import Funct3, Funct7, OpType
 from coreblocks.func_blocks.fu.shift_unit import ShiftUnitFn, ShiftUnitComponent
 
@@ -5,7 +6,6 @@ from test.func_blocks.fu.functional_common import ExecFn, FunctionalUnitTestCase
 
 
 class TestShiftUnit(FunctionalUnitTestCase[ShiftUnitFn.Fn]):
-    func_unit = ShiftUnitComponent(zbb_enable=True)
     zero_imm = False
 
     ops = {
@@ -15,6 +15,10 @@ class TestShiftUnit(FunctionalUnitTestCase[ShiftUnitFn.Fn]):
         ShiftUnitFn.Fn.ROL: ExecFn(OpType.BIT_ROTATION, Funct3.ROL, Funct7.ROL),
         ShiftUnitFn.Fn.ROR: ExecFn(OpType.BIT_ROTATION, Funct3.ROR, Funct7.ROR),
     }
+
+    @pytest.fixture
+    def func_unit(self):
+        return ShiftUnitComponent(zbb_enable=True)
 
     @staticmethod
     def compute_result(i1: int, i2: int, i_imm: int, pc: int, fn: ShiftUnitFn.Fn, xlen: int) -> dict[str, int]:

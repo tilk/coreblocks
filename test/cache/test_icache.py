@@ -1,6 +1,6 @@
 from collections import deque
-from parameterized import parameterized_class
 import random
+import pytest
 
 from amaranth import Elaboratable, Module
 from amaranth.utils import exact_log2
@@ -54,26 +54,27 @@ class SimpleCommonBusCacheRefillerTestCircuit(Elaboratable):
         return m
 
 
-@parameterized_class(
-    ("name", "isa_xlen", "line_size", "fetch_block"),
-    [
-        ("line16B_block4B_rv32i", 32, 4, 2),
-        ("line32B_block8B_rv32i", 32, 5, 3),
-        ("line32B_block8B_rv64i", 64, 5, 3),
-        ("line64B_block16B_rv32i", 32, 6, 4),
-        ("line16B_block16B_rv32i", 32, 4, 4),
-    ],
-)
 class TestSimpleCommonBusCacheRefiller(TestCaseWithSimulator):
     isa_xlen: int
     line_size: int
     fetch_block: int
 
-    def setup_method(self) -> None:
+    @pytest.fixture(
+        scope="function",
+        autouse=True,
+        ids=lambda t: t[0],
+        params=[
+            ("line16B_block4B_rv32i", 32, 4, 2),
+            ("line32B_block8B_rv32i", 32, 5, 3),
+            ("line32B_block8B_rv64i", 64, 5, 3),
+            ("line64B_block16B_rv32i", 32, 6, 4),
+            ("line16B_block16B_rv32i", 32, 4, 4),
+        ],
+    )
+    def setup_fixture(self, request) -> None:
+        _, isa_xlen, line_size, fetch_block = request.param
         self.gen_params = GenParams(
-            test_core_config.replace(
-                xlen=self.isa_xlen, icache_line_bytes_log=self.line_size, fetch_block_bytes_log=self.fetch_block
-            )
+            test_core_config.replace(xlen=isa_xlen, icache_line_bytes_log=line_size, fetch_block_bytes_log=fetch_block)
         )
         self.cp = self.gen_params.icache_params
         self.test_module = SimpleCommonBusCacheRefillerTestCircuit(self.gen_params)
@@ -175,20 +176,23 @@ class ICacheBypassTestCircuit(Elaboratable):
         return m
 
 
-@parameterized_class(
-    ("name", "isa_xlen", "fetch_block"),
-    [
-        ("rv32i", 32, 2),
-        ("rv64i", 64, 3),
-    ],
-)
 class TestICacheBypass(TestCaseWithSimulator):
     isa_xlen: int
     fetch_block: int
 
-    def setup_method(self) -> None:
+    @pytest.fixture(
+        scope="function",
+        autouse=True,
+        ids=lambda t: t[0],
+        params=[
+            ("rv32i", 32, 2),
+            ("rv64i", 64, 3),
+        ],
+    )
+    def setup_fixture(self, request) -> None:
+        _, isa_xlen, fetch_block = request.param
         self.gen_params = GenParams(
-            test_core_config.replace(xlen=self.isa_xlen, fetch_block_bytes_log=self.fetch_block, icache_enable=False)
+            test_core_config.replace(xlen=isa_xlen, fetch_block_bytes_log=fetch_block, icache_enable=False)
         )
         self.cp = self.gen_params.icache_params
         self.m = ICacheBypassTestCircuit(self.gen_params)
@@ -296,21 +300,24 @@ class ICacheTestCircuit(Elaboratable):
         return m
 
 
-@parameterized_class(
-    ("name", "isa_xlen", "line_size", "fetch_block"),
-    [
-        ("line16B_block8B_rv32i", 32, 4, 2),
-        ("line64B_block16B_rv32i", 32, 6, 4),
-        ("line32B_block16B_rv64i", 64, 5, 4),
-        ("line32B_block32B_rv64i", 64, 5, 5),
-    ],
-)
 class TestICache(TestCaseWithSimulator):
     isa_xlen: int
     line_size: int
     fetch_block: int
 
-    def setup_method(self) -> None:
+    @pytest.fixture(
+        scope="function",
+        autouse=True,
+        ids=lambda t: t[0],
+        params=[
+            ("line16B_block8B_rv32i", 32, 4, 2),
+            ("line64B_block16B_rv32i", 32, 6, 4),
+            ("line32B_block16B_rv64i", 64, 5, 4),
+            ("line32B_block32B_rv64i", 64, 5, 5),
+        ],
+    )
+    def setup_fixture(self, request) -> None:
+        _, self.isa_xlen, self.line_size, self.fetch_block = request.param
         random.seed(42)
 
         self.mem = dict()

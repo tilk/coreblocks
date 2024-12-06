@@ -1,6 +1,6 @@
 from amaranth import *
 from amaranth.lib.data import StructLayout
-from parameterized import parameterized_class
+import pytest
 
 from coreblocks.params import *
 from coreblocks.func_blocks.fu.jumpbranch import JumpBranchFuncUnit, JumpBranchFn
@@ -162,8 +162,10 @@ ops_auipc = {
 }
 
 
-@parameterized_class(
-    ("name", "ops", "func_unit", "compute_result"),
+class TestJumpBranchUnit(FunctionalUnitTestCase[JumpBranchFn.Fn]):
+    zero_imm = False
+
+    @pytest.fixture(ids=lambda t: t[0], params=
     [
         (
             "branches_and_jumps",
@@ -178,10 +180,10 @@ ops_auipc = {
             compute_result_auipc,
         ),
     ],
-)
-class TestJumpBranchUnit(FunctionalUnitTestCase[JumpBranchFn.Fn]):
-    compute_result = compute_result
-    zero_imm = False
-
+    )
+    def func_unit(self, request):
+        _, self.ops, func_unit, self.compute_result = request.param
+        return func_unit
+    
     def test_fu(self):
         self.run_standard_fu_test()

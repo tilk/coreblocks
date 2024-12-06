@@ -2,7 +2,6 @@ import pytest
 from typing import Optional
 from collections import deque
 from dataclasses import dataclass
-from parameterized import parameterized_class
 import random
 
 from amaranth import Elaboratable, Module
@@ -50,23 +49,24 @@ class MockedICache(Elaboratable, CacheInterface):
         return m
 
 
-@parameterized_class(
-    ("name", "fetch_block_log", "with_rvc"),
-    [
-        ("block4B", 2, False),
-        ("block4B_rvc", 2, True),
-        ("block8B", 3, False),
-        ("block8B_rvc", 3, True),
-        ("block16B", 4, False),
-        ("block16B_rvc", 4, True),
-    ],
-)
 class TestFetchUnit(TestCaseWithSimulator):
     fetch_block_log: int
     with_rvc: bool
 
-    @pytest.fixture(autouse=True)
-    def setup(self, fixture_initialize_testing_env):
+    @pytest.fixture(
+        autouse=True,
+        ids=lambda t: t[0],
+        params=[
+            ("block4B", 2, False),
+            ("block4B_rvc", 2, True),
+            ("block8B", 3, False),
+            ("block8B_rvc", 3, True),
+            ("block16B", 4, False),
+            ("block16B_rvc", 4, True),
+        ],
+    )
+    def setup(self, request, fixture_initialize_testing_env):
+        _, self.fetch_block_log, self.with_rvc = request.param
         self.pc = 0
         self.gen_params = GenParams(
             test_core_config.replace(
@@ -414,23 +414,25 @@ class CheckerResult:
     redirect_target: int
 
 
-@parameterized_class(
-    ("name", "fetch_block_log", "with_rvc"),
-    [
-        ("block4B", 2, False),
-        ("block4B_rvc", 2, True),
-        ("block8B", 3, False),
-        ("block8B_rvc", 3, True),
-        ("block16B", 4, False),
-        ("block16B_rvc", 4, True),
-    ],
-)
 class TestPredictionChecker(TestCaseWithSimulator):
     fetch_block_log: int
     with_rvc: bool
 
-    @pytest.fixture(autouse=True)
-    def setup(self, fixture_initialize_testing_env):
+    @pytest.fixture(
+        autouse=True,
+        ids=lambda t: t[0],
+        params=[
+            ("block4B", 2, False),
+            ("block4B_rvc", 2, True),
+            ("block8B", 3, False),
+            ("block8B_rvc", 3, True),
+            ("block16B", 4, False),
+            ("block16B_rvc", 4, True),
+        ],
+    )
+    def setup(self, request, fixture_initialize_testing_env):
+        _, self.fetch_block_log, self.with_rvc = request.param
+
         self.gen_params = GenParams(
             test_core_config.replace(compressed=self.with_rvc, fetch_block_bytes_log=self.fetch_block_log)
         )

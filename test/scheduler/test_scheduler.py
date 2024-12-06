@@ -1,9 +1,9 @@
 import random
+import pytest
 
 from collections import namedtuple, deque
 from typing import Callable, Optional, Iterable
 from amaranth import *
-from parameterized import parameterized_class
 from coreblocks.interface.keys import CoreStateKey
 from coreblocks.interface.layouts import RetirementLayouts
 from coreblocks.func_blocks.fu.common.rs_func_block import RSBlockComponent
@@ -108,8 +108,11 @@ class SchedulerTestCircuit(Elaboratable):
         return m
 
 
-@parameterized_class(
-    ("name", "optype_sets", "instr_count"),
+class TestScheduler(TestCaseWithSimulator):
+    optype_sets: list[set[OpType]]
+    instr_count: int
+
+    @pytest.fixture(autouse=True, ids=lambda t: t[0], params=
     [
         ("One-RS", [set(OpType)], 100),
         ("Two-RS", [{OpType.ARITHMETIC, OpType.COMPARE}, {OpType.MUL, OpType.COMPARE}], 500),
@@ -119,12 +122,9 @@ class SchedulerTestCircuit(Elaboratable):
             300,
         ),
     ],
-)
-class TestScheduler(TestCaseWithSimulator):
-    optype_sets: list[set[OpType]]
-    instr_count: int
-
-    def setup_method(self):
+    )
+    def setup_fixture(self, request):
+        _, self.optype_sets, self.instr_count = request.param
         self.rs_count = len(self.optype_sets)
         self.gen_params = GenParams(
             test_core_config.replace(

@@ -1,3 +1,4 @@
+import pytest
 from coreblocks.func_blocks.fu.exception import ExceptionUnitFn, ExceptionUnitComponent
 from coreblocks.arch import ExceptionCause, Funct3
 from coreblocks.arch import OpType
@@ -6,7 +7,6 @@ from test.func_blocks.fu.functional_common import ExecFn, FunctionalUnitTestCase
 
 
 class TestExceptionUnit(FunctionalUnitTestCase[ExceptionUnitFn.Fn]):
-    func_unit = ExceptionUnitComponent()
     number_of_tests = 1
     zero_imm = False
 
@@ -18,6 +18,10 @@ class TestExceptionUnit(FunctionalUnitTestCase[ExceptionUnitFn.Fn]):
         ExceptionUnitFn.Fn.BREAKPOINT: ExecFn(OpType.EXCEPTION, Funct3._EBREAKPOINT),
         ExceptionUnitFn.Fn.INSTR_PAGE_FAULT: ExecFn(OpType.EXCEPTION, Funct3._EINSTRPAGEFAULT),
     }
+
+    @pytest.fixture
+    def func_unit(self):
+        return ExceptionUnitComponent()
 
     @staticmethod
     def compute_result(i1: int, i2: int, i_imm: int, pc: int, fn: ExceptionUnitFn.Fn, xlen: int) -> dict[str, int]:

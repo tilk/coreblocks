@@ -17,10 +17,10 @@ from coreblocks.params.configurations import *
 from coreblocks.peripherals.wishbone import WishboneMemorySlave
 from coreblocks.priv.traps.interrupt_controller import ISA_RESERVED_INTERRUPTS
 
+import pytest
 import random
 import subprocess
 import tempfile
-from parameterized import parameterized_class
 
 from transactron.utils.dependencies import DependencyContext
 
@@ -135,8 +135,8 @@ class TestCoreAsmSourceBase(TestCoreBase):
             return {"text": load_section(".text"), "data": load_section(".data")}
 
 
-@parameterized_class(
-    ("name", "source_file", "cycle_count", "expected_regvals", "configuration"),
+@pytest.mark.parametrize(
+    "name, source_file, cycle_count, expected_regvals, configuration",
     [
         ("fibonacci", "fibonacci.asm", 500, {2: 2971215073}, basic_core_config),
         ("fibonacci_mem", "fibonacci_mem.asm", 400, {3: 55}, basic_core_config),
@@ -151,24 +151,27 @@ class TestCoreAsmSourceBase(TestCoreBase):
     ],
 )
 class TestCoreBasicAsm(TestCoreAsmSourceBase):
-    name: str
-    source_file: str
-    cycle_count: int
-    expected_regvals: dict[int, int]
-    configuration: CoreConfiguration
-
     async def run_and_check(self, sim: TestbenchContext):
         await self.tick(sim, self.cycle_count)
 
         for reg_id, val in self.expected_regvals.items():
             assert self.get_arch_reg_val(sim, reg_id) == val
 
-    def test_asm_source(self):
-        self.gen_params = GenParams(self.configuration)
+    def test_asm_source(
+        self,
+        name: str,
+        source_file: str,
+        cycle_count: int,
+        expected_regvals: dict[int, int],
+        configuration: CoreConfiguration,
+    ):
+        self.gen_params = GenParams(configuration)
+        self.cycle_count = cycle_count
+        self.expected_regvals = expected_regvals
 
-        bin_src = self.prepare_source(self.source_file)
+        bin_src = self.prepare_source(source_file)
 
-        if self.name == "mtval":
+        if name == "mtval":
             bin_src["text"] = bin_src["text"][: 0x1000 // 4]  # force instruction memory size clip in `mtval` test
 
         self.m = CoreTestElaboratable(self.gen_params, instr_mem=bin_src["text"], data_mem=bin_src["data"])
@@ -179,8 +182,8 @@ class TestCoreBasicAsm(TestCoreAsmSourceBase):
 
 # test interrupts with varying triggering frequency (parametrizable amount of cycles between
 # returning from an interrupt and triggering it again with 'lo' and 'hi' parameters)
-@parameterized_class(
-    ("source_file", "main_cycle_count", "start_regvals", "expected_regvals", "lo", "hi", "edge_only"),
+@pytest.mark.parametrize(
+    "source_file, main_cycle_count, start_regvals, expected_regvals, lo, hi, edge_only",
     [
         (
             "interrupt.asm",
@@ -208,14 +211,6 @@ class TestCoreBasicAsm(TestCoreAsmSourceBase):
     ],
 )
 class TestCoreInterrupt(TestCoreAsmSourceBase):
-    source_file: str
-    main_cycle_count: int
-    start_regvals: dict[int, int]
-    expected_regvals: dict[int, int]
-    lo: int
-    hi: int
-    edge_only: bool
-
     reg_init_mem_offset: int = 0x100
 
     def setup_method(self):
@@ -294,9 +289,23 @@ class TestCoreInterrupt(TestCoreAsmSourceBase):
         for reg_id, val in self.expected_regvals.items():
             assert self.get_arch_reg_val(sim, reg_id) == val
 
-    def test_interrupted_prog(self):
-        bin_src = self.prepare_source(self.source_file)
-        for reg_id, val in self.start_regvals.items():
+    def test_interrupted_prog(
+        self,
+        source_file: str,
+        main_cycle_count: int,
+        start_regvals: dict[int, int],
+        expected_regvals: dict[int, int],
+        lo: int,
+        hi: int,
+        edge_only: bool,
+    ):
+        self.edge_only = edge_only
+        self.expected_regvals = expected_regvals
+        self.main_cycle_count = main_cycle_count
+        self.lo = lo
+        self.hi = hi
+        bin_src = self.prepare_source(source_file)
+        for reg_id, val in start_regvals.items():
             bin_src["data"][self.reg_init_mem_offset // 4 + reg_id] = val
         self.m = CoreTestElaboratable(self.gen_params, instr_mem=bin_src["text"], data_mem=bin_src["data"])
         with self.run_simulation(self.m) as sim:
@@ -304,19 +313,14 @@ class TestCoreInterrupt(TestCoreAsmSourceBase):
             sim.add_process(self.clear_level_interrupt_process)
 
 
-@parameterized_class(
-    ("source_file", "cycle_count", "expected_regvals", "always_mmode"),
+@pytest.mark.parametrize(
+    "source_file, cycle_count, expected_regvals, always_mmode",
     [
         ("user_mode.asm", 1100, {4: 5}, False),
         ("wfi_no_mie.asm", 250, {8: 8}, True),  # only using level enable
     ],
 )
 class TestCoreInterruptOnPrivMode(TestCoreAsmSourceBase):
-    source_file: str
-    cycle_count: int
-    expected_regvals: dict[int, int]
-    always_mmode: bool
-
     def setup_method(self):
         self.configuration = full_core_config.replace(
             _generate_test_hardware=True, interrupt_custom_count=2, interrupt_custom_edge_trig_mask=0b01
@@ -360,8 +364,13 @@ class TestCoreInterruptOnPrivMode(TestCoreAsmSourceBase):
         for reg_id, val in self.expected_regvals.items():
             assert self.get_arch_reg_val(sim, reg_id) == val
 
-    def test_interrupted_prog(self):
-        bin_src = self.prepare_source(self.source_file)
+    def test_interrupted_prog(
+        self, source_file: str, cycle_count: int, expected_regvals: dict[int, int], always_mmode: bool
+    ):
+        self.cycle_count = cycle_count
+        self.expected_regvals = expected_regvals
+        self.always_mmode = always_mmode
+        bin_src = self.prepare_source(source_file)
         self.m = CoreTestElaboratable(self.gen_params, instr_mem=bin_src["text"], data_mem=bin_src["data"])
 
         with self.run_simulation(self.m) as sim:

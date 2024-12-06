@@ -1,4 +1,4 @@
-from parameterized import parameterized_class
+import pytest
 
 from amaranth import *
 
@@ -268,24 +268,21 @@ RV64_TESTS = [
 ]
 
 
-@parameterized_class(
-    ("name", "isa_xlen", "test_cases"),
+@pytest.mark.parametrize(
+    "name, isa_xlen, test_cases",
     [("rv32ic", 32, COMMON_TESTS + RV32_TESTS), ("rv64ic", 64, COMMON_TESTS + RV64_TESTS)],
 )
 class TestInstrDecompress(TestCaseWithSimulator):
-    isa_xlen: int
-    test_cases: list[tuple[int, ValueLike]]
-
-    def test(self):
+    def test(self, name: str, isa_xlen: int, test_cases: list[tuple[int, ValueLike]]):
         self.gen_params = GenParams(
-            test_core_config.replace(compressed=True, xlen=self.isa_xlen, fetch_block_bytes_log=3)
+            test_core_config.replace(compressed=True, xlen=isa_xlen, fetch_block_bytes_log=3)
         )
         self.m = InstrDecompress(self.gen_params)
 
         async def process(sim: TestbenchContext):
             illegal = Const.cast(IllegalInstr()).value
 
-            for instr_in, instr_out in self.test_cases:
+            for instr_in, instr_out in test_cases:
                 sim.set(self.m.instr_in, instr_in)
                 expected = Const.cast(instr_out).value
 

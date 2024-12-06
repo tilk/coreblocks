@@ -1,3 +1,4 @@
+import pytest
 from coreblocks.arch import Funct3, Funct7, OpType
 from coreblocks.func_blocks.fu.zbs import ZbsFunction, ZbsComponent
 
@@ -5,7 +6,6 @@ from test.func_blocks.fu.functional_common import ExecFn, FunctionalUnitTestCase
 
 
 class TestZbsUnit(FunctionalUnitTestCase[ZbsFunction.Fn]):
-    func_unit = ZbsComponent()
     zero_imm = False
 
     ops = {
@@ -14,6 +14,10 @@ class TestZbsUnit(FunctionalUnitTestCase[ZbsFunction.Fn]):
         ZbsFunction.Fn.BINV: ExecFn(OpType.SINGLE_BIT_MANIPULATION, Funct3.BINV, Funct7.BINV),
         ZbsFunction.Fn.BSET: ExecFn(OpType.SINGLE_BIT_MANIPULATION, Funct3.BSET, Funct7.BSET),
     }
+
+    @pytest.fixture
+    def func_unit(self):
+        return ZbsComponent()
 
     @staticmethod
     def compute_result(i1: int, i2: int, i_imm: int, pc: int, fn: ZbsFunction.Fn, xlen: int) -> dict[str, int]:

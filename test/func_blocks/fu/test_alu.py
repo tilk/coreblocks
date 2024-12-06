@@ -1,3 +1,4 @@
+import pytest
 from coreblocks.arch import Funct3, Funct7, OpType
 from coreblocks.func_blocks.fu.alu import AluFn, ALUComponent
 
@@ -7,7 +8,6 @@ from transactron.utils import signed_to_int
 
 
 class TestAluUnit(FunctionalUnitTestCase[AluFn.Fn]):
-    func_unit = ALUComponent(zba_enable=True, zbb_enable=True, zicond_enable=True)
     zero_imm = False
 
     ops = {
@@ -39,6 +39,10 @@ class TestAluUnit(FunctionalUnitTestCase[AluFn.Fn]):
         AluFn.Fn.CZERONEZ: ExecFn(OpType.CZERO, Funct3.CZERONEZ, Funct7.CZERO),
         AluFn.Fn.CZEROEQZ: ExecFn(OpType.CZERO, Funct3.CZEROEQZ, Funct7.CZERO),
     }
+    
+    @pytest.fixture
+    def func_unit(self):
+        return ALUComponent(zba_enable=True, zbb_enable=True, zicond_enable=True)
 
     @staticmethod
     def compute_result(i1: int, i2: int, i_imm: int, pc: int, fn: AluFn.Fn, xlen: int) -> dict[str, int]:

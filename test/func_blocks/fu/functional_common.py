@@ -61,8 +61,6 @@ class FunctionalUnitTestCase(TestCaseWithSimulator, Generic[_T]):
     ----------
     operations: dict[_T, ExecFn]
         List of operations performed by this unit.
-    func_unit: FunctionalComponentParams
-        Unit parameters for the unit instantiated.
     number_of_tests: int
         Number of random tests to be performed per operation.
     seed: int
@@ -74,7 +72,6 @@ class FunctionalUnitTestCase(TestCaseWithSimulator, Generic[_T]):
     """
 
     ops: dict[_T, ExecFn]
-    func_unit: FunctionalComponentParams
     number_of_tests = 50
     seed = 40
     zero_imm = True
@@ -103,7 +100,7 @@ class FunctionalUnitTestCase(TestCaseWithSimulator, Generic[_T]):
         raise NotImplementedError
 
     @pytest.fixture(autouse=True)
-    def setup(self, fixture_initialize_testing_env):
+    def setup(self, fixture_initialize_testing_env, func_unit: FunctionalComponentParams):
         self.gen_params = GenParams(test_core_config)
 
         self.report_mock = TestbenchIO(Adapter(i=self.gen_params.get(ExceptionRegisterLayouts).report))
@@ -113,7 +110,7 @@ class FunctionalUnitTestCase(TestCaseWithSimulator, Generic[_T]):
         DependencyContext.get().add_dependency(AsyncInterruptInsertSignalKey(), Signal())
         DependencyContext.get().add_dependency(CSRInstancesKey(), self.csrs)
 
-        self.m = SimpleTestCircuit(self.func_unit.get_module(self.gen_params))
+        self.m = SimpleTestCircuit(func_unit.get_module(self.gen_params))
         self.circ = ModuleConnector(dut=self.m, report_mock=self.report_mock, csrs=self.csrs)
 
         random.seed(self.seed)
