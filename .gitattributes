@@ -1,0 +1,7 @@
+* text=auto
+*.py text
+*.txt text
+*.ini text
+*.json text
+*.md text
+*.rst text
