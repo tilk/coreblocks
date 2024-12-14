@@ -59,7 +59,7 @@ class CSRUnit(FuncBlock, Elaboratable):
     update: Method
         Method from standard RS interface. Receives announcements of computed register values.
     get_result: Method
-        `accept` method from standard FU interface. Used to receive instruction result and pass it
+        `send_result` method from standard FU interface. Used to receive instruction result and pass it
         to the next pipeline stage.
     """
 
@@ -81,7 +81,7 @@ class CSRUnit(FuncBlock, Elaboratable):
         self.select = Method(o=self.csr_layouts.rs.select_out)
         self.insert = Method(i=self.csr_layouts.rs.insert_in)
         self.update = Method(i=self.csr_layouts.rs.update_in)
-        self.get_result = Method(o=self.fu_layouts.accept)
+        self.get_result = Method(o=self.fu_layouts.send_result)
 
         self.regfile: dict[int, tuple[Method, Method]] = {}
 

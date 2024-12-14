@@ -6,6 +6,8 @@ from coreblocks.func_blocks.interface.func_protocols import FuncBlock, FuncUnit
 from coreblocks.arch.isa import Extension, extension_implications
 from coreblocks.arch.optypes import optypes_required_by_extensions, OpType
 
+from transactron import Method, TModule
+
 from typing import TYPE_CHECKING
 
 
@@ -23,7 +25,7 @@ __all__ = [
 @dataclass(frozen=True)
 class BlockComponentParams(ABC):
     @abstractmethod
-    def get_module(self, gen_params: "GenParams") -> FuncBlock:
+    def get_module(self, gen_params: "GenParams", m: TModule) -> FuncBlock:
         raise NotImplementedError()
 
     @abstractmethod
@@ -37,7 +39,7 @@ class BlockComponentParams(ABC):
 
 class FunctionalComponentParams(ABC):
     @abstractmethod
-    def get_module(self, gen_params: "GenParams") -> FuncUnit:
+    def get_module(self, gen_params: "GenParams", send_result: Method) -> FuncUnit:
         raise NotImplementedError()
 
     @abstractmethod

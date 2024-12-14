@@ -46,7 +46,7 @@ class PrivilegedFn(DecoderManager):
 
 
 class PrivilegedFuncUnit(Elaboratable):
-    def __init__(self, gen_params: GenParams):
+    def __init__(self, gen_params: GenParams, send_result: Method):
         self.gen_params = gen_params
         self.priv_fn = PrivilegedFn()
 
@@ -54,7 +54,7 @@ class PrivilegedFuncUnit(Elaboratable):
         self.dm = DependencyContext.get()
 
         self.issue = Method(i=layouts.issue)
-        self.accept = Method(o=layouts.accept)
+        self.send_result = send_result
 
         self.fetch_resume_fifo = BasicFifo(self.gen_params.get(FetchLayouts).resume, 2)
 
@@ -127,8 +127,7 @@ class PrivilegedFuncUnit(Elaboratable):
 
             m.d.sync += illegal_instruction.eq(illegal_wfi | illegal_mret)
 
-        @def_method(m, self.accept, ready=instr_valid & finished)
-        def _():
+        with Transaction().body(m):
             m.d.sync += instr_valid.eq(0)
             m.d.sync += finished.eq(0)
 
@@ -180,19 +179,20 @@ class PrivilegedFuncUnit(Elaboratable):
                 # Unstall the fetch
                 self.fetch_resume_fifo.write(m, pc=ret_pc)
 
-            return {
-                "rob_id": instr_rob,
-                "exception": exception,
-                "rp_dst": 0,
-                "result": 0,
-            }
+            self.send_result(
+                m,
+                rob_id=instr_rob,
+                exception=exception,
+                rp_dst=0,
+                result=0,
+            )
 
         return m
 
 
 class PrivilegedUnitComponent(FunctionalComponentParams):
-    def get_module(self, gp: GenParams) -> FuncUnit:
-        unit = PrivilegedFuncUnit(gp)
+    def get_module(self, gen_params: GenParams, send_result: Method) -> FuncUnit:
+        unit = PrivilegedFuncUnit(gen_params, send_result)
         connections = DependencyContext.get()
         connections.add_dependency(FetchResumeKey(), unit.fetch_resume_fifo.read)
         return unit

@@ -4,7 +4,6 @@ from coreblocks.arch.isa_consts import PrivilegeLevel
 from transactron.utils.dependencies import DependencyContext
 
 from transactron import *
-from transactron.lib import FIFO
 
 from coreblocks.params import GenParams, FunctionalComponentParams
 from coreblocks.arch import OpType, Funct3, ExceptionCause
@@ -42,14 +41,14 @@ class ExceptionUnitFn(DecoderManager):
 
 
 class ExceptionFuncUnit(FuncUnit, Elaboratable):
-    def __init__(self, gen_params: GenParams, unit_fn=ExceptionUnitFn()):
+    def __init__(self, gen_params: GenParams, send_result: Method, unit_fn=ExceptionUnitFn()):
         self.gen_params = gen_params
         self.fn = unit_fn
 
         layouts = gen_params.get(FuncUnitLayouts)
 
         self.issue = Method(i=layouts.issue)
-        self.accept = Method(o=layouts.accept)
+        self.send_result = send_result
 
         self.dm = DependencyContext.get()
         self.report = self.dm.get_dependency(ExceptionReportKey())
@@ -57,12 +56,7 @@ class ExceptionFuncUnit(FuncUnit, Elaboratable):
     def elaborate(self, platform):
         m = TModule()
 
-        m.submodules.fifo = fifo = FIFO(self.gen_params.get(FuncUnitLayouts).accept, 2)
         m.submodules.decoder = decoder = self.fn.get_decoder(self.gen_params)
-
-        @def_method(m, self.accept)
-        def _():
-            return fifo.read(m)
 
         @def_method(m, self.issue)
         def _(arg):
@@ -103,7 +97,7 @@ class ExceptionFuncUnit(FuncUnit, Elaboratable):
 
             self.report(m, rob_id=arg.rob_id, cause=cause, pc=arg.pc, mtval=mtval)
 
-            fifo.write(m, result=0, exception=1, rob_id=arg.rob_id, rp_dst=arg.rp_dst)
+            self.send_result(m, result=0, exception=1, rob_id=arg.rob_id, rp_dst=arg.rp_dst)
 
         return m
 
@@ -112,8 +106,8 @@ class ExceptionUnitComponent(FunctionalComponentParams):
     def __init__(self):
         self.unit_fn = ExceptionUnitFn()
 
-    def get_module(self, gen_params: GenParams) -> FuncUnit:
-        unit = ExceptionFuncUnit(gen_params, self.unit_fn)
+    def get_module(self, gen_params: GenParams, send_result: Method) -> FuncUnit:
+        unit = ExceptionFuncUnit(gen_params, send_result, self.unit_fn)
         return unit
 
     def get_optypes(self) -> set[OpType]:

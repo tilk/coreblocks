@@ -1,6 +1,7 @@
 from collections.abc import Collection, Iterable
 from amaranth import *
 from dataclasses import dataclass
+from transactron.lib import FIFO
 
 from transactron.utils import DependencyContext
 from coreblocks.params import *
@@ -99,8 +100,11 @@ class RSBlockComponent(BlockComponentParams):
     rs_number: int = -1  # overwritten by CoreConfiguration
     rs_type: type[RSBase] = RS
 
-    def get_module(self, gen_params: GenParams) -> FuncBlock:
-        modules = list((u.get_module(gen_params), u.get_optypes()) for u in self.func_units)
+    def get_module(self, gen_params: GenParams, m: TModule) -> FuncBlock:
+        fu_layouts = gen_params.get(FuncUnitLayouts)
+        fifo = FIFO(fu_layouts.send_result, 2)
+        m.submodules += fifo
+        modules = list((u.get_module(gen_params, fifo.write), u.get_optypes()) for u in self.func_units)
         rs_unit = RSFuncBlock(
             gen_params=gen_params,
             func_units=modules,
@@ -111,7 +115,7 @@ class RSBlockComponent(BlockComponentParams):
         dependencies = DependencyContext.get()
         dependencies.add_dependency(AnnounceKey(), rs_unit.update)
         for unit, _ in modules:
-            dependencies.add_dependency(FuncUnitResultKey(), unit.accept)
+            dependencies.add_dependency(FuncUnitResultKey(), fifo.read)
         return rs_unit
 
     def get_optypes(self) -> set[OpType]:

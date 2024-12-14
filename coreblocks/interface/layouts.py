@@ -525,7 +525,7 @@ class FuncUnitLayouts:
             fields.pc,
         )
 
-        self.accept = make_layout(
+        self.send_result = make_layout(
             fields.rob_id,
             self.result,
             fields.rp_dst,

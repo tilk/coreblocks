@@ -8,7 +8,6 @@ __all__ = ["FuncUnit", "FuncBlock"]
 
 class FuncUnit(HasElaborate, Protocol):
     issue: Method
-    accept: Method
 
 
 class FuncBlock(HasElaborate, Protocol):

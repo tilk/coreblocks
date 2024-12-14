@@ -2,7 +2,6 @@ from typing import Sequence
 from amaranth import *
 
 from transactron import *
-from transactron.lib import FIFO
 
 from coreblocks.params import GenParams, FunctionalComponentParams
 from coreblocks.arch import OpType, Funct3, Funct7
@@ -76,25 +75,20 @@ class ShiftUnit(Elaboratable):
 
 
 class ShiftFuncUnit(FuncUnit, Elaboratable):
-    def __init__(self, gen_params: GenParams, shift_unit_fn=ShiftUnitFn()):
+    def __init__(self, gen_params: GenParams, send_result: Method, shift_unit_fn=ShiftUnitFn()):
         self.gen_params = gen_params
         self.shift_unit_fn = shift_unit_fn
 
         layouts = gen_params.get(FuncUnitLayouts)
 
         self.issue = Method(i=layouts.issue)
-        self.accept = Method(o=layouts.accept)
+        self.send_result = send_result
 
     def elaborate(self, platform):
         m = TModule()
 
         m.submodules.shift_alu = shift_alu = ShiftUnit(self.gen_params, shift_unit_fn=self.shift_unit_fn)
-        m.submodules.fifo = fifo = FIFO(self.gen_params.get(FuncUnitLayouts).accept, 2)
         m.submodules.decoder = decoder = self.shift_unit_fn.get_decoder(self.gen_params)
-
-        @def_method(m, self.accept)
-        def _():
-            return fifo.read(m)
 
         @def_method(m, self.issue)
         def _(arg):
@@ -104,7 +98,7 @@ class ShiftFuncUnit(FuncUnit, Elaboratable):
             m.d.av_comb += shift_alu.in1.eq(arg.s1_val)
             m.d.av_comb += shift_alu.in2.eq(Mux(arg.imm, arg.imm, arg.s2_val))
 
-            fifo.write(m, rob_id=arg.rob_id, result=shift_alu.out, rp_dst=arg.rp_dst, exception=0)
+            self.send_result(m, rob_id=arg.rob_id, result=shift_alu.out, rp_dst=arg.rp_dst, exception=0)
 
         return m
 
@@ -113,8 +107,8 @@ class ShiftUnitComponent(FunctionalComponentParams):
     def __init__(self, zbb_enable=False):
         self.shift_unit_fn = ShiftUnitFn(zbb_enable=zbb_enable)
 
-    def get_module(self, gen_params: GenParams) -> FuncUnit:
-        return ShiftFuncUnit(gen_params, self.shift_unit_fn)
+    def get_module(self, gen_params: GenParams, send_result: Method) -> FuncUnit:
+        return ShiftFuncUnit(gen_params, send_result, self.shift_unit_fn)
 
     def get_optypes(self) -> set[OpType]:
         return self.shift_unit_fn.get_op_types()
