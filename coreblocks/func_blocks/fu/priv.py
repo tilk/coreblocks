@@ -127,7 +127,7 @@ class PrivilegedFuncUnit(Elaboratable):
 
             m.d.sync += illegal_instruction.eq(illegal_wfi | illegal_mret)
 
-        with Transaction().body(m):
+        with Transaction().body(m, request=instr_valid & finished):
             m.d.sync += instr_valid.eq(0)
             m.d.sync += finished.eq(0)
 

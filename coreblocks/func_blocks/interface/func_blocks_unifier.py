@@ -15,13 +15,11 @@ class FuncBlocksUnifier(Elaboratable):
         gen_params: GenParams,
         blocks: Iterable[BlockComponentParams],
     ):
-        self.gen_params = gen_params
-        self.blocks = list(blocks)
+        self.m = TModule()  # TODO: hack, remove
+        self.rs_blocks = [(block.get_module(gen_params, self.m), block.get_optypes()) for block in blocks]
 
     def elaborate(self, platform):
-        m = TModule()
-
-        self.rs_blocks = [(block.get_module(self.gen_params, m), block.get_optypes()) for block in self.blocks]
+        m = self.m
 
         for n, (unit, _) in enumerate(self.rs_blocks):
             m.submodules[f"rs_block_{n}"] = unit

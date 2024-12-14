@@ -114,8 +114,7 @@ class RSBlockComponent(BlockComponentParams):
         )
         dependencies = DependencyContext.get()
         dependencies.add_dependency(AnnounceKey(), rs_unit.update)
-        for unit, _ in modules:
-            dependencies.add_dependency(FuncUnitResultKey(), fifo.read)
+        dependencies.add_dependency(FuncUnitResultKey(), fifo.read)
         return rs_unit
 
     def get_optypes(self) -> set[OpType]:
