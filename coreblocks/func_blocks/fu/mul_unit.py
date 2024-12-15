@@ -209,10 +209,7 @@ class MulComponent(FunctionalComponentParams):
     mul_unit_type: MulType
     _: KW_ONLY
     dsp_width: int = 32
-    mul_fn = MulFn()
+    decoder_manager: MulFn = MulFn()
 
     def get_module(self, gen_params: GenParams, send_result: Method) -> FuncUnit:
-        return MulUnit(gen_params, send_result, self.mul_unit_type, self.dsp_width)
-
-    def get_optypes(self) -> set[OpType]:
-        return self.mul_fn.get_op_types()
+        return MulUnit(gen_params, send_result, self.mul_unit_type, self.dsp_width, self.decoder_manager)

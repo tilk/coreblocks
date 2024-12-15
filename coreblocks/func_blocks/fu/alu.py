@@ -1,3 +1,4 @@
+from dataclasses import dataclass, field, KW_ONLY
 from typing import Sequence
 from amaranth import *
 
@@ -126,7 +127,7 @@ class Alu(Elaboratable):
         self.zicond_enable = alu_fn.zicond_enable
         self.gen_params = gen_params
 
-        self.fn = alu_fn.get_function()
+        self.fn = Signal(alu_fn.Fn)
         self.in1 = Signal(gen_params.isa.xlen)
         self.in2 = Signal(gen_params.isa.xlen)
 
@@ -271,15 +272,20 @@ class AluFuncUnit(FuncUnit, Elaboratable):
         return m
 
 
+@dataclass(frozen=True)
 class ALUComponent(FunctionalComponentParams):
-    def __init__(self, zba_enable=False, zbb_enable=False, zicond_enable=False):
-        self.zba_enable = zba_enable
-        self.zbb_enable = zbb_enable
-        self.zicond_enable = zicond_enable
-        self.alu_fn = AluFn(zba_enable=zba_enable, zbb_enable=zbb_enable, zicond_enable=zicond_enable)
+    _: KW_ONLY
+    zba_enable: bool = False
+    zbb_enable: bool = False
+    zicond_enable: bool = False
+    decoder_manager: AluFn = field(init=False)
+
+    def __post_init__(self):
+        object.__setattr__(
+            self,
+            "decoder_manager",
+            AluFn(zba_enable=self.zba_enable, zbb_enable=self.zbb_enable, zicond_enable=self.zicond_enable),
+        )
 
     def get_module(self, gen_params: GenParams, send_result: Method) -> FuncUnit:
-        return AluFuncUnit(gen_params, send_result, self.alu_fn)
-
-    def get_optypes(self) -> set[OpType]:
-        return self.alu_fn.get_op_types()
+        return AluFuncUnit(gen_params, send_result, self.decoder_manager)

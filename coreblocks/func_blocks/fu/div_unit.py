@@ -131,14 +131,11 @@ class DivUnit(FuncUnit, Elaboratable):
         return m
 
 
-@dataclass
+@dataclass(frozen=True)
 class DivComponent(FunctionalComponentParams):
     _: KW_ONLY
     ipc: int = 3  # iterations per cycle
-    div_fn = DivFn()
+    decoder_manager: DivFn = DivFn()
 
     def get_module(self, gen_params: GenParams, send_result: Method) -> FuncUnit:
-        return DivUnit(gen_params, send_result, self.ipc, self.div_fn)
-
-    def get_optypes(self) -> set[OpType]:
-        return self.div_fn.get_op_types()
+        return DivUnit(gen_params, send_result, self.ipc, self.decoder_manager)

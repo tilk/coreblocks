@@ -1,3 +1,4 @@
+from dataclasses import dataclass, KW_ONLY
 from enum import IntFlag, auto
 from typing import Sequence
 from amaranth import *
@@ -58,7 +59,7 @@ class Zbs(Elaboratable):
         self.gen_params = gen_params
 
         self.xlen = gen_params.isa.xlen
-        self.function = function.get_function()
+        self.function = Signal(function.Fn)
         self.in1 = Signal(self.xlen)
         self.in2 = Signal(self.xlen)
 
@@ -122,12 +123,10 @@ class ZbsUnit(FuncUnit, Elaboratable):
         return m
 
 
+@dataclass(frozen=True)
 class ZbsComponent(FunctionalComponentParams):
-    def __init__(self):
-        self.zbs_fn = ZbsFunction()
+    _: KW_ONLY
+    decoder_manager: ZbsFunction = ZbsFunction()
 
     def get_module(self, gen_params: GenParams, send_result: Method) -> FuncUnit:
-        return ZbsUnit(gen_params, send_result, self.zbs_fn)
-
-    def get_optypes(self) -> set[OpType]:
-        return self.zbs_fn.get_op_types()
+        return ZbsUnit(gen_params, send_result, self.decoder_manager)
