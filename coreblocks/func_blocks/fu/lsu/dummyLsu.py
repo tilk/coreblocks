@@ -27,7 +27,7 @@ class LSUDummy(FuncUnit, Elaboratable):
     address is in correct range. Addresses have to be aligned.
     """
 
-    def __init__(self, gen_params: GenParams, bus: BusMasterInterface) -> None:
+    def __init__(self, gen_params: GenParams, send_result: Method, bus: BusMasterInterface) -> None:
         """
         Parameters
         ----------
@@ -45,7 +45,7 @@ class LSUDummy(FuncUnit, Elaboratable):
         self.report = self.dependency_manager.get_dependency(ExceptionReportKey())
 
         self.issue = Method(i=self.fu_layouts.issue, single_caller=True)
-        self.accept = Method(o=self.fu_layouts.accept)
+        self.send_result = send_result
 
         self.bus = bus
 
@@ -121,8 +121,7 @@ class LSUDummy(FuncUnit, Elaboratable):
             results_noop.write(m, data=0, exception=0, cause=0, addr=0)
             issued_noop.write(m, arg)
 
-        @def_method(m, self.accept)
-        def _():
+        with Transaction().body(m):
             arg = Signal(self.fu_layouts.issue)
             res = Signal(self.lsu_layouts.accept)
             with condition(m) as branch:
@@ -133,17 +132,18 @@ class LSUDummy(FuncUnit, Elaboratable):
                     m.d.comb += res.eq(results_noop.read(m))
                     m.d.comb += arg.eq(issued_noop.read(m))
 
-            with m.If(res["exception"]):
-                self.report(m, rob_id=arg["rob_id"], cause=res["cause"], pc=arg["pc"], mtval=res["addr"])
+            with m.If(res.exception):
+                self.report(m, rob_id=arg.rob_id, cause=res.cause, pc=arg.pc, mtval=res.addr)
 
             self.log.debug(m, 1, "accept rob_id={} result=0x{:08x} exception={}", arg.rob_id, res.data, res.exception)
 
-            return {
-                "rob_id": arg["rob_id"],
-                "rp_dst": arg["rp_dst"],
-                "result": res["data"],
-                "exception": res["exception"],
-            }
+            self.send_result(
+                m,
+                rob_id=arg.rob_id,
+                rp_dst=arg.rp_dst,
+                result=res.data,
+                exception=res.exception,
+            )
 
         with Transaction().body(m):
             precommit = self.dependency_manager.get_dependency(InstructionPrecommitKey())
@@ -155,10 +155,10 @@ class LSUDummy(FuncUnit, Elaboratable):
 
 @dataclass(frozen=True)
 class LSUComponent(FunctionalComponentParams):
-    def get_module(self, gen_params: GenParams) -> FuncUnit:
+    def get_module(self, gen_params: GenParams, send_result: Method) -> FuncUnit:
         connections = DependencyContext.get()
         bus_master = connections.get_dependency(CommonBusDataKey())
-        unit = LSUDummy(gen_params, bus_master)
+        unit = LSUDummy(gen_params, send_result, bus_master)
         return unit
 
     def get_optypes(self) -> set[OpType]:

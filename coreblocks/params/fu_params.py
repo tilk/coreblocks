@@ -1,16 +1,20 @@
 from abc import abstractmethod, ABC
-from dataclasses import dataclass
+from dataclasses import KW_ONLY, dataclass, field
 from collections.abc import Collection, Iterable
+import enum
 
 from coreblocks.func_blocks.interface.func_protocols import FuncBlock, FuncUnit
 from coreblocks.arch.isa import Extension, extension_implications
 from coreblocks.arch.optypes import optypes_required_by_extensions, OpType
+
+from transactron import Method, TModule
 
 from typing import TYPE_CHECKING
 
 
 if TYPE_CHECKING:
     from coreblocks.params.genparams import GenParams
+    from coreblocks.func_blocks.fu.common.fu_decoder import DecoderManager
 
 
 __all__ = [
@@ -20,10 +24,15 @@ __all__ = [
 ]
 
 
+class AnnouncementType(enum.Enum):
+    DIRECT = enum.auto()
+    FIFO = enum.auto()
+
+
 @dataclass(frozen=True)
 class BlockComponentParams(ABC):
     @abstractmethod
-    def get_module(self, gen_params: "GenParams") -> FuncBlock:
+    def get_module(self, gen_params: "GenParams", m: TModule) -> FuncBlock:
         raise NotImplementedError()
 
     @abstractmethod
@@ -35,14 +44,18 @@ class BlockComponentParams(ABC):
         raise NotImplementedError()
 
 
+@dataclass(frozen=True)
 class FunctionalComponentParams(ABC):
-    @abstractmethod
-    def get_module(self, gen_params: "GenParams") -> FuncUnit:
-        raise NotImplementedError()
+    _: KW_ONLY
+    announcement: AnnouncementType = AnnouncementType.DIRECT
+    decoder_manager: "DecoderManager" = field(init=False)
 
     @abstractmethod
-    def get_optypes(self) -> set["OpType"]:
+    def get_module(self, gen_params: "GenParams", send_result: Method) -> FuncUnit:
         raise NotImplementedError()
+
+    def get_optypes(self) -> set["OpType"]:
+        return self.decoder_manager.get_op_types()
 
 
 def optypes_supported(components: Iterable[BlockComponentParams | FunctionalComponentParams]) -> set["OpType"]:

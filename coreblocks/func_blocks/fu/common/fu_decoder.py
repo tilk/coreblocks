@@ -1,4 +1,5 @@
-from typing import Sequence, Type
+from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from amaranth import *
 
 from coreblocks.params import GenParams
@@ -19,7 +20,7 @@ class Decoder(Elaboratable):
     exec_fn: View
     """
 
-    def __init__(self, gen_params: GenParams, decode_fn: Type[IntFlag], ops: Sequence[tuple], check_optype: bool):
+    def __init__(self, gen_params: GenParams, decode_fn: type[IntFlag], ops: Sequence[tuple], check_optype: bool):
         layouts = gen_params.get(CommonLayoutFields)
 
         self.exec_fn = Signal(layouts.exec_fn_layout)
@@ -44,12 +45,13 @@ class Decoder(Elaboratable):
         return m
 
 
-class DecoderManager:
+class DecoderManager(ABC):
     """Class responsible for instruction management."""
 
-    Fn: Type[IntFlag]
+    Fn: type[IntFlag]
     """Enumeration of instructions implemented in given functional unit."""
 
+    @abstractmethod
     def get_instructions(self) -> Sequence[tuple]:
         """Method providing list of valid instruction.
 
@@ -91,13 +93,3 @@ class DecoderManager:
 
         # if multiple op types detected, request op_type check in decoder
         return Decoder(gen_params, self.Fn, self.get_instructions(), check_optype=multiple_op_types)
-
-    def get_function(self) -> Value:
-        """Method returning Signal Object for decoder, called function in FU blocks
-
-        Returns
-        -------
-        return : Value
-            Signal object.
-        """
-        return Signal(self.Fn)

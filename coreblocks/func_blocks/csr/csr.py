@@ -14,9 +14,11 @@ from coreblocks.params.fu_params import BlockComponentParams
 from coreblocks.func_blocks.interface.func_protocols import FuncBlock
 from coreblocks.interface.layouts import FetchLayouts, FuncUnitLayouts, CSRUnitLayouts
 from coreblocks.interface.keys import (
+    AnnounceKey,
     CSRListKey,
     FetchResumeKey,
     CSRInstancesKey,
+    FuncUnitResultKey,
     InstructionPrecommitKey,
     ExceptionReportKey,
     AsyncInterruptInsertSignalKey,
@@ -57,7 +59,7 @@ class CSRUnit(FuncBlock, Elaboratable):
     update: Method
         Method from standard RS interface. Receives announcements of computed register values.
     get_result: Method
-        `accept` method from standard FU interface. Used to receive instruction result and pass it
+        `send_result` method from standard FU interface. Used to receive instruction result and pass it
         to the next pipeline stage.
     """
 
@@ -79,7 +81,7 @@ class CSRUnit(FuncBlock, Elaboratable):
         self.select = Method(o=self.csr_layouts.rs.select_out)
         self.insert = Method(i=self.csr_layouts.rs.insert_in)
         self.update = Method(i=self.csr_layouts.rs.update_in)
-        self.get_result = Method(o=self.fu_layouts.accept)
+        self.get_result = Method(o=self.fu_layouts.send_result)
 
         self.regfile: dict[int, tuple[Method, Method]] = {}
 
@@ -264,10 +266,12 @@ class CSRUnit(FuncBlock, Elaboratable):
 
 @dataclass(frozen=True)
 class CSRBlockComponent(BlockComponentParams):
-    def get_module(self, gen_params: GenParams) -> FuncBlock:
+    def get_module(self, gen_params: GenParams, m: TModule) -> FuncBlock:
         connections = DependencyContext.get()
         unit = CSRUnit(gen_params)
         connections.add_dependency(FetchResumeKey(), unit.fetch_resume)
+        connections.add_dependency(FuncUnitResultKey(), unit.get_result)
+        connections.add_dependency(AnnounceKey(), unit.update)
         return unit
 
     def get_optypes(self) -> set[OpType]:
