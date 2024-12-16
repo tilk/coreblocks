@@ -1,10 +1,11 @@
 from collections.abc import Collection, Iterable
 from amaranth import *
 from dataclasses import dataclass
-from transactron.lib import FIFO
+from transactron.lib import FIFO, Connect
 
 from transactron.utils import DependencyContext
 from coreblocks.params import *
+from coreblocks.params.fu_params import AnnouncementType
 from .rs import RS, RSBase
 from coreblocks.scheduler.wakeup_select import WakeupSelect
 from transactron import Method, TModule
@@ -102,9 +103,14 @@ class RSBlockComponent(BlockComponentParams):
 
     def get_module(self, gen_params: GenParams, m: TModule) -> FuncBlock:
         fu_layouts = gen_params.get(FuncUnitLayouts)
-        fifo = FIFO(fu_layouts.send_result, 2)
-        m.submodules += fifo
-        modules = list((u.get_module(gen_params, fifo.write), u.get_optypes()) for u in self.func_units)
+        dependencies = DependencyContext.get()
+        modules: list[tuple[FuncUnit, set[OpType]]] = []
+        for func_unit in self.func_units:
+            conn = FIFO(fu_layouts.send_result, 2) if func_unit.announcement == AnnouncementType.FIFO else Connect(fu_layouts.send_result)
+            m.submodules += conn
+            mod = func_unit.get_module(gen_params, conn.write)
+            dependencies.add_dependency(FuncUnitResultKey(), conn.read)
+            modules.append((mod, func_unit.get_optypes()))
         rs_unit = RSFuncBlock(
             gen_params=gen_params,
             func_units=modules,
@@ -112,9 +118,7 @@ class RSBlockComponent(BlockComponentParams):
             rs_number=self.rs_number,
             rs_type=self.rs_type,
         )
-        dependencies = DependencyContext.get()
         dependencies.add_dependency(AnnounceKey(), rs_unit.update)
-        dependencies.add_dependency(FuncUnitResultKey(), fifo.read)
         return rs_unit
 
     def get_optypes(self) -> set[OpType]:

@@ -1,6 +1,7 @@
 from abc import abstractmethod, ABC
 from dataclasses import KW_ONLY, dataclass, field
 from collections.abc import Collection, Iterable
+import enum
 
 from coreblocks.func_blocks.interface.func_protocols import FuncBlock, FuncUnit
 from coreblocks.arch.isa import Extension, extension_implications
@@ -23,6 +24,11 @@ __all__ = [
 ]
 
 
+class AnnouncementType(enum.Enum):
+    DIRECT = enum.auto()
+    FIFO = enum.auto()
+
+
 @dataclass(frozen=True)
 class BlockComponentParams(ABC):
     @abstractmethod
@@ -41,6 +47,7 @@ class BlockComponentParams(ABC):
 @dataclass(frozen=True)
 class FunctionalComponentParams(ABC):
     _: KW_ONLY
+    announcement: AnnouncementType = AnnouncementType.DIRECT
     decoder_manager: "DecoderManager" = field(init=False)
 
     @abstractmethod
