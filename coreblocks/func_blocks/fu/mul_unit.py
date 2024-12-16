@@ -17,6 +17,7 @@ from transactron.utils import MethodStruct
 
 
 from coreblocks.func_blocks.fu.common.fu_decoder import DecoderManager
+from coreblocks.params.fu_params import AnnouncementType
 
 
 __all__ = ["MulUnit", "MulFn", "MulComponent", "MulType"]
@@ -210,6 +211,7 @@ class MulComponent(FunctionalComponentParams):
     _: KW_ONLY
     dsp_width: int = 32
     decoder_manager: MulFn = MulFn()
+    announcement = AnnouncementType.FIFO
 
     def get_module(self, gen_params: GenParams, send_result: Method) -> FuncUnit:
         return MulUnit(gen_params, send_result, self.mul_unit_type, self.dsp_width, self.decoder_manager)

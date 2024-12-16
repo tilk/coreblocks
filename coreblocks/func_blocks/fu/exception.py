@@ -16,6 +16,7 @@ from coreblocks.func_blocks.fu.common.fu_decoder import DecoderManager
 from enum import IntFlag, auto
 
 from coreblocks.func_blocks.interface.func_protocols import FuncUnit
+from coreblocks.params.fu_params import AnnouncementType
 
 __all__ = ["ExceptionFuncUnit", "ExceptionUnitComponent"]
 
@@ -107,6 +108,7 @@ class ExceptionFuncUnit(FuncUnit, Elaboratable):
 class ExceptionUnitComponent(FunctionalComponentParams):
     _: KW_ONLY
     decoder_manager: ExceptionUnitFn = ExceptionUnitFn()
+    announcement = AnnouncementType.FIFO
 
     def get_module(self, gen_params: GenParams, send_result: Method) -> FuncUnit:
         unit = ExceptionFuncUnit(gen_params, send_result, self.decoder_manager)

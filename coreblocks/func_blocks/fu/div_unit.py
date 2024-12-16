@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from amaranth import *
 from amaranth.lib import data
 
-from coreblocks.params.fu_params import FunctionalComponentParams
+from coreblocks.params.fu_params import AnnouncementType, FunctionalComponentParams
 from coreblocks.params import GenParams
 from coreblocks.arch import OpType, Funct3
 from coreblocks.interface.layouts import FuncUnitLayouts
@@ -136,6 +136,7 @@ class DivComponent(FunctionalComponentParams):
     _: KW_ONLY
     ipc: int = 3  # iterations per cycle
     decoder_manager: DivFn = DivFn()
+    announcement = AnnouncementType.FIFO
 
     def get_module(self, gen_params: GenParams, send_result: Method) -> FuncUnit:
         return DivUnit(gen_params, send_result, self.ipc, self.decoder_manager)

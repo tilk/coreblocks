@@ -13,6 +13,7 @@ from coreblocks.func_blocks.fu.common.fu_decoder import DecoderManager
 from enum import IntFlag, auto
 
 from coreblocks.func_blocks.interface.func_protocols import FuncUnit
+from coreblocks.params.fu_params import AnnouncementType
 
 __all__ = ["ShiftFuncUnit", "ShiftUnitComponent"]
 
@@ -109,6 +110,7 @@ class ShiftUnitComponent(FunctionalComponentParams):
     _: KW_ONLY
     zbb_enable: bool = False
     decoder_manager: ShiftUnitFn = field(init=False)
+    announcement = AnnouncementType.FIFO
 
     def __post_init__(self):
         object.__setattr__(self, "decoder_manager", ShiftUnitFn(zbb_enable=self.zbb_enable))

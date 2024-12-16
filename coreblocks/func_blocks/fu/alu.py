@@ -17,6 +17,8 @@ from coreblocks.func_blocks.interface.func_protocols import FuncUnit
 
 from transactron.utils import popcount, count_leading_zeros
 
+from coreblocks.params.fu_params import AnnouncementType
+
 __all__ = ["AluFuncUnit", "ALUComponent"]
 
 
@@ -279,6 +281,7 @@ class ALUComponent(FunctionalComponentParams):
     zbb_enable: bool = False
     zicond_enable: bool = False
     decoder_manager: AluFn = field(init=False)
+    announcement = AnnouncementType.FIFO
 
     def __post_init__(self):
         object.__setattr__(

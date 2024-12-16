@@ -11,6 +11,7 @@ from transactron.utils import OneHotSwitch
 from coreblocks.func_blocks.interface.func_protocols import FuncUnit
 
 from coreblocks.func_blocks.fu.common.fu_decoder import DecoderManager
+from coreblocks.params.fu_params import AnnouncementType
 
 
 class ZbsFunction(DecoderManager):
@@ -127,6 +128,7 @@ class ZbsUnit(FuncUnit, Elaboratable):
 class ZbsComponent(FunctionalComponentParams):
     _: KW_ONLY
     decoder_manager: ZbsFunction = ZbsFunction()
+    announcement = AnnouncementType.FIFO
 
     def get_module(self, gen_params: GenParams, send_result: Method) -> FuncUnit:
         return ZbsUnit(gen_params, send_result, self.decoder_manager)
