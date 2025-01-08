@@ -1,7 +1,7 @@
 from collections.abc import Collection, Iterable
 from amaranth import *
 from dataclasses import dataclass
-from transactron.lib import FIFO, Connect
+from transactron.lib import FIFO, Collector, Connect
 
 from transactron.utils import DependencyContext
 from coreblocks.params import *
@@ -105,11 +105,16 @@ class RSBlockComponent(BlockComponentParams):
         fu_layouts = gen_params.get(FuncUnitLayouts)
         dependencies = DependencyContext.get()
         modules: list[tuple[FuncUnit, set[OpType]]] = []
+        result_methods: list[Method] = []
         for func_unit in self.func_units:
-            conn = FIFO(fu_layouts.send_result, 2) if func_unit.announcement == AnnouncementType.FIFO else Connect(fu_layouts.send_result)
+            conn = (
+                FIFO(fu_layouts.send_result, 2)
+                if func_unit.announcement == AnnouncementType.FIFO
+                else Connect(fu_layouts.send_result)
+            )
             m.submodules += conn
             mod = func_unit.get_module(gen_params, conn.write)
-            dependencies.add_dependency(FuncUnitResultKey(), conn.read)
+            result_methods.append(conn.read)
             modules.append((mod, func_unit.get_optypes()))
         rs_unit = RSFuncBlock(
             gen_params=gen_params,
@@ -119,6 +124,8 @@ class RSBlockComponent(BlockComponentParams):
             rs_type=self.rs_type,
         )
         dependencies.add_dependency(AnnounceKey(), rs_unit.update)
+        m.submodules[f"rs_collector_{self.rs_number}"] = collector = Collector(result_methods)
+        dependencies.add_dependency(FuncUnitResultKey(), collector.method)
         return rs_unit
 
     def get_optypes(self) -> set[OpType]:
