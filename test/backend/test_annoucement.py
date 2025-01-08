@@ -49,9 +49,9 @@ class BackendTestCircuit(Elaboratable):
         )
 
         # Create stubs for interfaces used by result announcement
-        self.announce_val_tbio = TestbenchIO(Adapter(i=self.lay_rs_write, o=self.lay_rs_write))
+        self.announce_val_tbio = TestbenchIO(Adapter.create(i=self.lay_rs_write, o=self.lay_rs_write))
         m.submodules.announce_val_tbio = self.announce_val_tbio
-        self.rob_mark_done_tbio = TestbenchIO(Adapter(i=self.lay_rob_mark_done, o=self.lay_rob_mark_done))
+        self.rob_mark_done_tbio = TestbenchIO(Adapter.create(i=self.lay_rob_mark_done, o=self.lay_rob_mark_done))
         m.submodules.rob_mark_done_tbio = self.rob_mark_done_tbio
 
         # Create result announcement
