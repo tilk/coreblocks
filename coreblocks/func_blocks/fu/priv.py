@@ -1,3 +1,4 @@
+from dataclasses import dataclass, KW_ONLY
 from amaranth import *
 
 from enum import IntFlag, auto, unique
@@ -40,21 +41,20 @@ class PrivilegedFn(DecoderManager):
         FENCEI = auto()
         WFI = auto()
 
-    @classmethod
-    def get_instructions(cls) -> Sequence[tuple]:
-        return [(cls.Fn.MRET, OpType.MRET), (cls.Fn.FENCEI, OpType.FENCEI), (cls.Fn.WFI, OpType.WFI)]
+    def get_instructions(self) -> Sequence[tuple]:
+        return [(self.Fn.MRET, OpType.MRET), (self.Fn.FENCEI, OpType.FENCEI), (self.Fn.WFI, OpType.WFI)]
 
 
 class PrivilegedFuncUnit(Elaboratable):
-    def __init__(self, gen_params: GenParams):
+    def __init__(self, gen_params: GenParams, send_result: Method, priv_fn: PrivilegedFn = PrivilegedFn()):
         self.gen_params = gen_params
-        self.priv_fn = PrivilegedFn()
+        self.priv_fn = priv_fn
 
         self.layouts = layouts = gen_params.get(FuncUnitLayouts)
         self.dm = DependencyContext.get()
 
         self.issue = Method(i=layouts.issue)
-        self.accept = Method(o=layouts.accept)
+        self.send_result = send_result
 
         self.fetch_resume_fifo = BasicFifo(self.gen_params.get(FetchLayouts).resume, 2)
 
@@ -77,7 +77,7 @@ class PrivilegedFuncUnit(Elaboratable):
 
         instr_rob = Signal(self.gen_params.rob_entries_bits)
         instr_pc = Signal(self.gen_params.isa.xlen)
-        instr_fn = self.priv_fn.get_function()
+        instr_fn = Signal(self.priv_fn.Fn)
 
         mret = self.dm.get_dependency(MretKey())
         async_interrupt_active = self.dm.get_dependency(AsyncInterruptInsertSignalKey())
@@ -127,8 +127,7 @@ class PrivilegedFuncUnit(Elaboratable):
 
             m.d.sync += illegal_instruction.eq(illegal_wfi | illegal_mret)
 
-        @def_method(m, self.accept, ready=instr_valid & finished)
-        def _():
+        with Transaction().body(m, request=instr_valid & finished):
             m.d.sync += instr_valid.eq(0)
             m.d.sync += finished.eq(0)
 
@@ -180,22 +179,24 @@ class PrivilegedFuncUnit(Elaboratable):
                 # Unstall the fetch
                 self.fetch_resume_fifo.write(m, pc=ret_pc)
 
-            return {
-                "rob_id": instr_rob,
-                "exception": exception,
-                "rp_dst": 0,
-                "result": 0,
-            }
+            self.send_result(
+                m,
+                rob_id=instr_rob,
+                exception=exception,
+                rp_dst=0,
+                result=0,
+            )
 
         return m
 
 
+@dataclass(frozen=True)
 class PrivilegedUnitComponent(FunctionalComponentParams):
-    def get_module(self, gp: GenParams) -> FuncUnit:
-        unit = PrivilegedFuncUnit(gp)
+    _: KW_ONLY
+    decoder_manager: PrivilegedFn = PrivilegedFn()
+
+    def get_module(self, gen_params: GenParams, send_result: Method) -> FuncUnit:
+        unit = PrivilegedFuncUnit(gen_params, send_result, self.decoder_manager)
         connections = DependencyContext.get()
         connections.add_dependency(FetchResumeKey(), unit.fetch_resume_fifo.read)
         return unit
-
-    def get_optypes(self) -> set[OpType]:
-        return PrivilegedFn().get_op_types()

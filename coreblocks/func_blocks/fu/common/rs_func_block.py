@@ -1,14 +1,18 @@
 from collections.abc import Collection, Iterable
 from amaranth import *
 from dataclasses import dataclass
+from transactron.lib import FIFO, Collector, Connect
+
+from transactron.utils import DependencyContext
 from coreblocks.params import *
+from coreblocks.params.fu_params import AnnouncementType
 from .rs import RS, RSBase
 from coreblocks.scheduler.wakeup_select import WakeupSelect
 from transactron import Method, TModule
 from coreblocks.func_blocks.interface.func_protocols import FuncUnit, FuncBlock
-from transactron.lib import Collector
 from coreblocks.arch import OpType
 from coreblocks.interface.layouts import RSLayouts, FuncUnitLayouts
+from coreblocks.interface.keys import AnnounceKey, FuncUnitResultKey
 
 __all__ = ["RSFuncBlock", "RSBlockComponent"]
 
@@ -26,9 +30,6 @@ class RSFuncBlock(FuncBlock, Elaboratable):
         RS select method.
     update: Method
         RS update method.
-    get_result: Method
-        Method used for getting single result out of one of the FUs. It uses
-        layout described by `FuncUnitLayouts`.
     """
 
     def __init__(
@@ -65,7 +66,6 @@ class RSFuncBlock(FuncBlock, Elaboratable):
         self.insert = Method(i=self.rs_layouts.rs.insert_in)
         self.select = Method(o=self.rs_layouts.rs.select_out)
         self.update = Method(i=self.rs_layouts.rs.update_in)
-        self.get_result = Method(o=self.fu_layouts.accept)
 
     def elaborate(self, platform):
         m = TModule()
@@ -87,12 +87,9 @@ class RSFuncBlock(FuncBlock, Elaboratable):
             m.submodules[f"func_unit_{n}"] = func_unit
             m.submodules[f"wakeup_select_{n}"] = wakeup_select
 
-        m.submodules.collector = collector = Collector([func_unit.accept for func_unit, _ in self.func_units])
-
         self.insert.proxy(m, self.rs.insert)
         self.select.proxy(m, self.rs.select)
         self.update.proxy(m, self.rs.update)
-        self.get_result.proxy(m, collector.method)
 
         return m
 
@@ -104,8 +101,21 @@ class RSBlockComponent(BlockComponentParams):
     rs_number: int = -1  # overwritten by CoreConfiguration
     rs_type: type[RSBase] = RS
 
-    def get_module(self, gen_params: GenParams) -> FuncBlock:
-        modules = list((u.get_module(gen_params), u.get_optypes()) for u in self.func_units)
+    def get_module(self, gen_params: GenParams, m: TModule) -> FuncBlock:
+        fu_layouts = gen_params.get(FuncUnitLayouts)
+        dependencies = DependencyContext.get()
+        modules: list[tuple[FuncUnit, set[OpType]]] = []
+        result_methods: list[Method] = []
+        for func_unit in self.func_units:
+            conn = (
+                FIFO(fu_layouts.send_result, 2)
+                if func_unit.announcement == AnnouncementType.FIFO
+                else Connect(fu_layouts.send_result)
+            )
+            m.submodules += conn
+            mod = func_unit.get_module(gen_params, conn.write)
+            result_methods.append(conn.read)
+            modules.append((mod, func_unit.get_optypes()))
         rs_unit = RSFuncBlock(
             gen_params=gen_params,
             func_units=modules,
@@ -113,6 +123,9 @@ class RSBlockComponent(BlockComponentParams):
             rs_number=self.rs_number,
             rs_type=self.rs_type,
         )
+        dependencies.add_dependency(AnnounceKey(), rs_unit.update)
+        m.submodules[f"rs_collector_{self.rs_number}"] = collector = Collector(result_methods)
+        dependencies.add_dependency(FuncUnitResultKey(), collector.method)
         return rs_unit
 
     def get_optypes(self) -> set[OpType]:

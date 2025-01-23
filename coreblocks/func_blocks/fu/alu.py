@@ -1,8 +1,8 @@
+from dataclasses import dataclass, field, KW_ONLY
 from typing import Sequence
 from amaranth import *
 
 from transactron import *
-from transactron.lib import FIFO
 from transactron.lib.metrics import *
 
 from coreblocks.arch import OpType, Funct3, Funct7
@@ -16,6 +16,8 @@ from enum import IntFlag, auto
 from coreblocks.func_blocks.interface.func_protocols import FuncUnit
 
 from transactron.utils import popcount, count_leading_zeros
+
+from coreblocks.params.fu_params import AnnouncementType
 
 __all__ = ["AluFuncUnit", "ALUComponent"]
 
@@ -127,7 +129,7 @@ class Alu(Elaboratable):
         self.zicond_enable = alu_fn.zicond_enable
         self.gen_params = gen_params
 
-        self.fn = alu_fn.get_function()
+        self.fn = Signal(alu_fn.Fn)
         self.in1 = Signal(gen_params.isa.xlen)
         self.in2 = Signal(gen_params.isa.xlen)
 
@@ -234,14 +236,14 @@ class Alu(Elaboratable):
 
 
 class AluFuncUnit(FuncUnit, Elaboratable):
-    def __init__(self, gen_params: GenParams, alu_fn=AluFn()):
+    def __init__(self, gen_params: GenParams, send_result: Method, alu_fn=AluFn()):
         self.gen_params = gen_params
         self.alu_fn = alu_fn
 
         layouts = gen_params.get(FuncUnitLayouts)
 
         self.issue = Method(i=layouts.issue)
-        self.accept = Method(o=layouts.accept)
+        self.send_result = send_result
 
         self.perf_instr = TaggedCounter(
             "backend.fu.alu.instr",
@@ -255,12 +257,7 @@ class AluFuncUnit(FuncUnit, Elaboratable):
         m.submodules += [self.perf_instr]
 
         m.submodules.alu = alu = Alu(self.gen_params, alu_fn=self.alu_fn)
-        m.submodules.fifo = fifo = FIFO(self.gen_params.get(FuncUnitLayouts).accept, 2)
         m.submodules.decoder = decoder = self.alu_fn.get_decoder(self.gen_params)
-
-        @def_method(m, self.accept)
-        def _():
-            return fifo.read(m)
 
         @def_method(m, self.issue)
         def _(arg):
@@ -272,20 +269,26 @@ class AluFuncUnit(FuncUnit, Elaboratable):
 
             self.perf_instr.incr(m, decoder.decode_fn)
 
-            fifo.write(m, rob_id=arg.rob_id, result=alu.out, rp_dst=arg.rp_dst, exception=0)
+            self.send_result(m, rob_id=arg.rob_id, result=alu.out, rp_dst=arg.rp_dst, exception=0)
 
         return m
 
 
+@dataclass(frozen=True)
 class ALUComponent(FunctionalComponentParams):
-    def __init__(self, zba_enable=False, zbb_enable=False, zicond_enable=False):
-        self.zba_enable = zba_enable
-        self.zbb_enable = zbb_enable
-        self.zicond_enable = zicond_enable
-        self.alu_fn = AluFn(zba_enable=zba_enable, zbb_enable=zbb_enable, zicond_enable=zicond_enable)
+    _: KW_ONLY
+    zba_enable: bool = False
+    zbb_enable: bool = False
+    zicond_enable: bool = False
+    decoder_manager: AluFn = field(init=False)
+    announcement = AnnouncementType.FIFO
 
-    def get_module(self, gen_params: GenParams) -> FuncUnit:
-        return AluFuncUnit(gen_params, self.alu_fn)
+    def __post_init__(self):
+        object.__setattr__(
+            self,
+            "decoder_manager",
+            AluFn(zba_enable=self.zba_enable, zbb_enable=self.zbb_enable, zicond_enable=self.zicond_enable),
+        )
 
-    def get_optypes(self) -> set[OpType]:
-        return self.alu_fn.get_op_types()
+    def get_module(self, gen_params: GenParams, send_result: Method) -> FuncUnit:
+        return AluFuncUnit(gen_params, send_result, self.decoder_manager)

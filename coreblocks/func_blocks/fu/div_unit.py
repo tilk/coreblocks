@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from amaranth import *
 from amaranth.lib import data
 
-from coreblocks.params.fu_params import FunctionalComponentParams
+from coreblocks.params.fu_params import AnnouncementType, FunctionalComponentParams
 from coreblocks.params import GenParams
 from coreblocks.arch import OpType, Funct3
 from coreblocks.interface.layouts import FuncUnitLayouts
@@ -41,14 +41,14 @@ def get_input(arg: data.View) -> tuple[Value, Value]:
 
 
 class DivUnit(FuncUnit, Elaboratable):
-    def __init__(self, gen_params: GenParams, ipc: int = 4, div_fn=DivFn()):
+    def __init__(self, gen_params: GenParams, send_result: Method, ipc: int = 4, div_fn=DivFn()):
         self.gen_params = gen_params
         self.ipc = ipc
 
         layouts = gen_params.get(FuncUnitLayouts)
 
         self.issue = Method(i=layouts.issue)
-        self.accept = Method(o=layouts.accept)
+        self.send_result = send_result
         self.clear = Method()
 
         self.div_fn = div_fn
@@ -56,7 +56,6 @@ class DivUnit(FuncUnit, Elaboratable):
     def elaborate(self, platform):
         m = TModule()
 
-        m.submodules.result_fifo = result_fifo = BasicFifo(self.gen_params.get(FuncUnitLayouts).accept, 2)
         m.submodules.params_fifo = params_fifo = FIFO(
             [
                 ("rob_id", self.gen_params.rob_entries_bits),
@@ -75,12 +74,7 @@ class DivUnit(FuncUnit, Elaboratable):
 
         @def_method(m, self.clear)
         def _():
-            result_fifo.clear(m)
             divider.clear(m)
-
-        @def_method(m, self.accept)
-        def _():
-            return result_fifo.read(m)
 
         @def_method(m, self.issue)
         def _(arg):
@@ -132,19 +126,17 @@ class DivUnit(FuncUnit, Elaboratable):
             flip_sig = Mux(params.flip_sign, ~result[sign_bit], 0)
             sign_result = Mux(flip_sig, -result, result)
 
-            result_fifo.write(m, rob_id=params.rob_id, result=sign_result, rp_dst=params.rp_dst, exception=0)
+            self.send_result(m, rob_id=params.rob_id, result=sign_result, rp_dst=params.rp_dst, exception=0)
 
         return m
 
 
-@dataclass
+@dataclass(frozen=True)
 class DivComponent(FunctionalComponentParams):
     _: KW_ONLY
     ipc: int = 3  # iterations per cycle
-    div_fn = DivFn()
+    decoder_manager: DivFn = DivFn()
+    announcement = AnnouncementType.FIFO
 
-    def get_module(self, gen_params: GenParams) -> FuncUnit:
-        return DivUnit(gen_params, self.ipc, self.div_fn)
-
-    def get_optypes(self) -> set[OpType]:
-        return self.div_fn.get_op_types()
+    def get_module(self, gen_params: GenParams, send_result: Method) -> FuncUnit:
+        return DivUnit(gen_params, send_result, self.ipc, self.decoder_manager)
