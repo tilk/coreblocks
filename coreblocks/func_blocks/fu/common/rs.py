@@ -1,5 +1,7 @@
 from abc import abstractmethod
 from collections.abc import Iterable
+from functools import reduce
+from operator import or_
 from typing import Optional
 from amaranth import *
 from amaranth.lib.data import ArrayLayout
@@ -32,6 +34,7 @@ class RSBase(Elaboratable):
         ready_for = ready_for or ((op for op in OpType),)
         self.gen_params = gen_params
         self.rs_entries = rs_entries
+        self.rs_ways = rs_ways
         self.layouts = gen_params.get(RSLayouts, rs_entries=self.rs_entries)
         self.internal_layout = make_layout(
             ("rs_data", self.layouts.rs.data_layout),
@@ -101,19 +104,13 @@ class RSBase(Elaboratable):
             with m.If(matches_s1[i].any()):
                 m.d.sync += record.rs_data.rp_s1.eq(0)
                 m.d.sync += record.rs_data.s1_val.eq(
-                    Cat(
-                        Cat(matches_s1[i][k] & self.update[k].data_in.reg_val[j] for k in range(len(self.update))).any()
-                        for j in range(self.gen_params.isa.xlen)
-                    )
+                    reduce(or_, (Mux(matches_s1[i][k], self.update[k].data_in.reg_val, 0) for k in range(self.rs_ways)))
                 )
 
             with m.If(matches_s2[i].any()):
                 m.d.sync += record.rs_data.rp_s2.eq(0)
                 m.d.sync += record.rs_data.s2_val.eq(
-                    Cat(
-                        Cat(matches_s2[i][k] & self.update[k].data_in.reg_val[j] for k in range(len(self.update))).any()
-                        for j in range(self.gen_params.isa.xlen)
-                    )
+                    reduce(or_, (Mux(matches_s2[i][k], self.update[k].data_in.reg_val, 0) for k in range(self.rs_ways)))
                 )
 
         @def_method(m, self.insert)
