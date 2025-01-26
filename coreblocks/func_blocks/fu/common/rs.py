@@ -96,6 +96,7 @@ class RSBase(Elaboratable):
                 m.d.comb += matches_s1[i][k].eq(record.rs_data.rp_s1 == reg_id)
                 m.d.comb += matches_s2[i][k].eq(record.rs_data.rp_s2 == reg_id)
 
+        # It is assumed that two simultaneous update calls never update the same physical register.
         for i, record in enumerate(iter(self.data)):
             with m.If(matches_s1[i].any()):
                 m.d.sync += record.rs_data.rp_s1.eq(0)
