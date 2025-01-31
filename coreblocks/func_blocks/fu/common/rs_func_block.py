@@ -6,7 +6,7 @@ from .rs import RS, RSBase
 from coreblocks.scheduler.wakeup_select import WakeupSelect
 from transactron import Method, TModule
 from coreblocks.func_blocks.interface.func_protocols import FuncUnit, FuncBlock
-from transactron.lib import FIFO, Collector, Connect
+from transactron.lib import Collector, Connect, Pipe
 from coreblocks.arch import OpType
 from coreblocks.interface.layouts import RSLayouts, FuncUnitLayouts
 
@@ -87,7 +87,7 @@ class RSFuncBlock(FuncBlock, Elaboratable):
                 issue=func_unit.issue,
             )
             if result_fifo:
-                connector = FIFO(self.gen_params.get(FuncUnitLayouts).push_result, 2)
+                connector = Pipe(self.gen_params.get(FuncUnitLayouts).push_result)
             else:
                 connector = Connect(self.gen_params.get(FuncUnitLayouts).push_result)
             m.submodules[f"func_unit_{n}"] = func_unit
