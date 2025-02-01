@@ -1,7 +1,7 @@
 from functools import reduce
 from operator import or_
 from amaranth import *
-from amaranth.lib.data import ArrayLayout, StructLayout
+from amaranth.lib.data import ArrayLayout
 from transactron import Method, Methods, Transaction, def_method, TModule, def_methods
 from transactron.utils import assign
 from coreblocks.interface.layouts import RFLayouts
@@ -69,7 +69,9 @@ class RegisterFile(Elaboratable):
             m.d.av_comb += bypass_hits.eq(bypass_valids & Cat(reg_id == bypass.reg_id for bypass in bypass_data))
             ret = Signal(self.read_resp1.layout_out)
             with m.If(bypass_hits.any()):
-                data_bypassed = reduce(or_, [Mux(bypass_hits[i], bypass.reg_val, 0) for i, bypass in enumerate(iter(bypass_data))])
+                data_bypassed = reduce(
+                    or_, [Mux(bypass_hits[i], bypass.reg_val, 0) for i, bypass in enumerate(iter(bypass_data))]
+                )
                 m.d.av_comb += assign(ret, {"reg_val": data_bypassed, "valid": 1})
             with m.Else():
                 m.d.av_comb += assign(ret, {"reg_val": reg_val, "valid": self.valids[reg_id]})
