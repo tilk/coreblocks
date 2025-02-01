@@ -92,3 +92,8 @@ class CSRListKey(ListKey["CSRRegister"]):
 @dataclass(frozen=True)
 class FlushICacheKey(SimpleKey[Method]):
     pass
+
+
+@dataclass(frozen=True)
+class RFBypassKey(SimpleKey[list[Method]]):
+    pass

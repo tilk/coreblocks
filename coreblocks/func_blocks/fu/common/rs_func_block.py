@@ -1,14 +1,17 @@
 from collections.abc import Collection, Iterable
 from amaranth import *
 from dataclasses import dataclass
+
+from transactron.utils import DependencyContext
 from coreblocks.params import *
 from .rs import RS, RSBase
 from coreblocks.scheduler.wakeup_select import WakeupSelect
-from transactron import Method, TModule
+from transactron import Method, TModule, def_method
 from coreblocks.func_blocks.interface.func_protocols import FuncUnit, FuncBlock
-from transactron.lib import FIFO, Collector, Connect
+from transactron.lib import FIFO, Collector, Connect, MethodProduct
 from coreblocks.arch import OpType
 from coreblocks.interface.layouts import RSLayouts, FuncUnitLayouts
+from coreblocks.interface.keys import RFBypassKey
 
 __all__ = ["RSFuncBlock", "RSBlockComponent"]
 
@@ -79,7 +82,7 @@ class RSFuncBlock(FuncBlock, Elaboratable):
 
         targets: list[Method] = []
 
-        for n, (func_unit, _, result_fifo) in enumerate(self.func_units):
+        for n, (func_unit, _optypes, result_fifo) in enumerate(self.func_units):
             wakeup_select = WakeupSelect(
                 gen_params=self.gen_params,
                 get_ready=self.rs.get_ready_list[n],
@@ -88,12 +91,23 @@ class RSFuncBlock(FuncBlock, Elaboratable):
             )
             if result_fifo:
                 connector = FIFO(self.gen_params.get(FuncUnitLayouts).push_result, 2)
+
+                bypass_method = Method.like(connector.write)
+                bypass = DependencyContext.get().get_dependency(RFBypassKey()).pop()
+
+                @def_method(m, bypass_method)
+                def _(rob_id, result, rp_dst, exception):
+                    with m.If(~exception):
+                        bypass(m, reg_id=rp_dst, reg_val=result)
+
+                push_target = MethodProduct([connector.write, bypass_method]).use(m)
             else:
                 connector = Connect(self.gen_params.get(FuncUnitLayouts).push_result)
+                push_target = connector.write
             m.submodules[f"func_unit_{n}"] = func_unit
             m.submodules[f"wakeup_select_{n}"] = wakeup_select
             m.submodules[f"connector_{n}"] = connector
-            func_unit.push_result.proxy(m, connector.write)
+            func_unit.push_result.proxy(m, push_target)
             targets.append(connector.read)
 
         m.submodules.collector = collector = Collector(targets)

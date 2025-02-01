@@ -4,6 +4,7 @@ from transactron.lib.allocators import PriorityEncoderAllocator
 from transactron.utils.amaranth_ext.elaboratables import ModuleConnector
 
 from transactron.utils.dependencies import DependencyContext
+from coreblocks.func_blocks.fu.common.rs_func_block import RSBlockComponent
 from coreblocks.priv.traps.instr_counter import CoreInstructionCounter
 from coreblocks.func_blocks.interface.func_blocks_unifier import FuncBlocksUnifier
 from coreblocks.priv.traps.interrupt_controller import ISA_RESERVED_INTERRUPTS, InternalInterruptController
@@ -14,6 +15,7 @@ from coreblocks.interface.keys import (
     FetchResumeKey,
     CSRInstancesKey,
     CommonBusDataKey,
+    RFBypassKey,
 )
 from coreblocks.params.genparams import GenParams
 from coreblocks.core_structs.rat import FRAT, RRAT
@@ -62,11 +64,19 @@ class Core(Component):
 
         self.rf_allocator = PriorityEncoderAllocator(gen_params.phys_regs, init=2**gen_params.phys_regs - 2)
 
+        num_bypass = sum(
+            int(fu.result_fifo)
+            for fb in gen_params.func_units_config
+            if isinstance(fb, RSBlockComponent)
+            for fu in fb.func_units
+        )
+
         self.FRAT = FRAT(gen_params=self.gen_params)
         self.RRAT = RRAT(gen_params=self.gen_params)
-        self.RF = RegisterFile(gen_params=self.gen_params)
+        self.RF = RegisterFile(gen_params=self.gen_params, num_bypass=num_bypass)
         self.ROB = ReorderBuffer(gen_params=self.gen_params)
 
+        self.connections.add_dependency(RFBypassKey(), list(self.RF.bypass))
         self.connections.add_dependency(CommonBusDataKey(), self.bus_master_data_adapter)
 
         self.exception_information_register = ExceptionInformationRegister(
