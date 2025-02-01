@@ -1,5 +1,9 @@
+from functools import reduce
+from operator import or_
 from amaranth import *
-from transactron import Method, Transaction, def_method, TModule
+from amaranth.lib.data import ArrayLayout
+from transactron import Method, Methods, Transaction, def_method, TModule, def_methods
+from transactron.utils import assign
 from coreblocks.interface.layouts import RFLayouts
 from coreblocks.params import GenParams
 from transactron.lib.metrics import HwExpHistogram, TaggedLatencyMeasurer
@@ -10,7 +14,7 @@ __all__ = ["RegisterFile"]
 
 
 class RegisterFile(Elaboratable):
-    def __init__(self, *, gen_params: GenParams):
+    def __init__(self, *, gen_params: GenParams, num_bypass: int = 0):
         self.gen_params = gen_params
         layouts = gen_params.get(RFLayouts)
         self.read_layout = layouts.rf_read_out
@@ -27,6 +31,7 @@ class RegisterFile(Elaboratable):
         self.read_resp1 = Method(i=layouts.rf_read_in, o=layouts.rf_read_out)
         self.read_resp2 = Method(i=layouts.rf_read_in, o=layouts.rf_read_out)
         self.write = Method(i=layouts.rf_write)
+        self.bypass = Methods(num_bypass, i=layouts.rf_write)
         self.free = Method(i=layouts.rf_free)
 
         self.perf_rf_valid_time = TaggedLatencyMeasurer(
@@ -47,8 +52,9 @@ class RegisterFile(Elaboratable):
 
         m.submodules += [self.entries, self.perf_rf_valid_time, self.perf_num_valid]
 
-        being_written = Signal(self.gen_params.phys_regs_bits)
-        written_value = Signal(self.gen_params.isa.xlen)
+        num_bypass = len(self.bypass)
+        bypass_valids = Signal(num_bypass + 1)
+        bypass_data = Signal(ArrayLayout(self.write.layout_in, num_bypass + 1))
 
         @def_method(m, self.read_req1)
         def _(reg_id: Value):
@@ -58,33 +64,41 @@ class RegisterFile(Elaboratable):
         def _(reg_id: Value):
             self.entries.read_req[1](m, addr=reg_id)
 
+        def perform_read(reg_id: Value, reg_val: Value):
+            bypass_hits = Signal.like(bypass_valids)
+            m.d.av_comb += bypass_hits.eq(bypass_valids & Cat(reg_id == bypass.reg_id for bypass in bypass_data))
+            ret = Signal(self.read_resp1.layout_out)
+            with m.If(bypass_hits.any()):
+                data_bypassed = reduce(
+                    or_, [Mux(bypass_hits[i], bypass.reg_val, 0) for i, bypass in enumerate(iter(bypass_data))]
+                )
+                m.d.av_comb += assign(ret, {"reg_val": data_bypassed, "valid": 1})
+            with m.Else():
+                m.d.av_comb += assign(ret, {"reg_val": reg_val, "valid": self.valids[reg_id]})
+            return ret
+
         @def_method(m, self.read_resp1)
         def _(reg_id: Value):
-            forward = Signal()
-            m.d.av_comb += forward.eq((being_written == reg_id) & (reg_id != 0))
-            return {
-                "reg_val": Mux(forward, written_value, self.entries.read_resp[0](m).data),
-                "valid": Mux(forward, 1, self.valids[reg_id]),
-            }
+            return perform_read(reg_id, self.entries.read_resp[0](m).data)
 
         @def_method(m, self.read_resp2)
         def _(reg_id: Value):
-            forward = Signal()
-            m.d.av_comb += forward.eq((being_written == reg_id) & (reg_id != 0))
-            return {
-                "reg_val": Mux(forward, written_value, self.entries.read_resp[1](m).data),
-                "valid": Mux(forward, 1, self.valids[reg_id]),
-            }
+            return perform_read(reg_id, self.entries.read_resp[1](m).data)
 
         @def_method(m, self.write)
         def _(reg_id: Value, reg_val: Value):
-            zero_reg = reg_id == 0
-            m.d.comb += being_written.eq(reg_id)
-            m.d.av_comb += written_value.eq(reg_val)
-            with m.If(~(zero_reg)):
+            with m.If(reg_id != 0):
+                m.d.comb += bypass_valids[num_bypass].eq(1)
+                m.d.av_comb += assign(bypass_data[num_bypass], {"reg_id": reg_id, "reg_val": reg_val})
                 self.entries.write(m, addr=reg_id, data=reg_val)
                 m.d.sync += self.valids[reg_id].eq(1)
                 self.perf_rf_valid_time.start(m, slot=reg_id)
+
+        @def_methods(m, self.bypass)
+        def _(k: int, reg_id: Value, reg_val: Value):
+            with m.If(reg_id != 0):
+                m.d.comb += bypass_valids[k].eq(1)
+                m.d.av_comb += assign(bypass_data[k], {"reg_id": reg_id, "reg_val": reg_val})
 
         @def_method(m, self.free)
         def _(reg_id: Value):
