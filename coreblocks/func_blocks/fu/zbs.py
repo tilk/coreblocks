@@ -1,6 +1,6 @@
 from dataclasses import dataclass, KW_ONLY
 from enum import IntFlag, auto
-from typing import Sequence
+from typing import Optional, Sequence
 from amaranth import *
 
 from coreblocks.params import GenParams, FunctionalComponentParams
@@ -127,6 +127,7 @@ class ZbsUnit(FuncUnit, Elaboratable):
 class ZbsComponent(FunctionalComponentParams):
     _: KW_ONLY
     decoder_manager: ZbsFunction = ZbsFunction()
+    fixed_pipeline: Optional[int] = 0
     result_fifo: bool = True
 
     def get_module(self, gen_params: GenParams) -> FuncUnit:

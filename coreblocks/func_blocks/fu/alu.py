@@ -1,5 +1,5 @@
 from dataclasses import dataclass, KW_ONLY, field
-from typing import Sequence
+from typing import Optional, Sequence
 from amaranth import *
 
 from transactron import *
@@ -276,6 +276,7 @@ class AluFuncUnit(FuncUnit, Elaboratable):
 class ALUComponent(FunctionalComponentParams):
     _: KW_ONLY
     result_fifo: bool = True
+    fixed_pipeline: Optional[int] = 0
     zba_enable: bool = False
     zbb_enable: bool = False
     zicond_enable: bool = False

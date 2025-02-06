@@ -1,4 +1,5 @@
 from collections.abc import Collection, Iterable
+from collections import defaultdict
 from amaranth import *
 from dataclasses import dataclass
 from coreblocks.params import *
@@ -6,7 +7,7 @@ from .rs import RS, RSBase
 from coreblocks.scheduler.wakeup_select import WakeupSelect
 from transactron import Method, TModule
 from coreblocks.func_blocks.interface.func_protocols import FuncUnit, FuncBlock
-from transactron.lib import FIFO, Collector, Connect
+from transactron.lib import FIFO, Collector, Connect, NonexclusiveWrapper
 from coreblocks.arch import OpType
 from coreblocks.interface.layouts import RSLayouts, FuncUnitLayouts
 
@@ -34,7 +35,7 @@ class RSFuncBlock(FuncBlock, Elaboratable):
     def __init__(
         self,
         gen_params: GenParams,
-        func_units: Iterable[tuple[FuncUnit, set[OpType], bool]],
+        func_units: Iterable[tuple[FuncUnit, FunctionalComponentParams]],
         rs_entries: int,
         rs_number: int,
         rs_type: type[RSBase],
@@ -74,26 +75,33 @@ class RSFuncBlock(FuncBlock, Elaboratable):
             gen_params=self.gen_params,
             rs_entries=self.rs_entries,
             rs_number=self.rs_number,
-            ready_for=(optypes for _, optypes, _ in self.func_units),
+            ready_for=(unit.get_optypes() for _, unit in self.func_units),
         )
 
         targets: list[Method] = []
 
-        for n, (func_unit, _, result_fifo) in enumerate(self.func_units):
+        grouped_func_units: dict[tuple[int, bool], list[FuncUnit]] = defaultdict(list)
+        for n, (func_unit, unit) in enumerate(self.func_units):
             wakeup_select = WakeupSelect(
                 gen_params=self.gen_params,
                 get_ready=self.rs.get_ready_list[n],
                 take_row=self.rs.take,
                 issue=func_unit.issue,
             )
+            m.submodules[f"wakeup_select_{n}"] = wakeup_select
+            m.submodules[f"func_unit_{n}"] = func_unit
+            idx = unit.fixed_pipeline if unit.fixed_pipeline is not None else -n - 1
+            grouped_func_units[(idx, unit.result_fifo)].append(func_unit)
+
+        for (idx, result_fifo), func_units in grouped_func_units.items():
             if result_fifo:
                 connector = FIFO(self.gen_params.get(FuncUnitLayouts).push_result, 2)
             else:
                 connector = Connect(self.gen_params.get(FuncUnitLayouts).push_result)
-            m.submodules[f"func_unit_{n}"] = func_unit
-            m.submodules[f"wakeup_select_{n}"] = wakeup_select
-            m.submodules[f"connector_{n}"] = connector
-            func_unit.push_result.proxy(m, connector.write)
+            m.submodules += connector
+            write = connector.write if idx < 0 else NonexclusiveWrapper(connector.write).use(m)
+            for func_unit in func_units:
+                func_unit.push_result.proxy(m, write)
             targets.append(connector.read)
 
         m.submodules.collector = collector = Collector(targets)
@@ -114,7 +122,7 @@ class RSBlockComponent(BlockComponentParams):
     rs_type: type[RSBase] = RS
 
     def get_module(self, gen_params: GenParams) -> FuncBlock:
-        modules = list((u.get_module(gen_params), u.get_optypes(), u.result_fifo) for u in self.func_units)
+        modules = list((u.get_module(gen_params), u) for u in self.func_units)
         rs_unit = RSFuncBlock(
             gen_params=gen_params,
             func_units=modules,
