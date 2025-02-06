@@ -4,9 +4,9 @@ from dataclasses import dataclass
 from coreblocks.params import *
 from .rs import RS, RSBase
 from coreblocks.scheduler.wakeup_select import WakeupSelect
-from transactron import Method, TModule
-from coreblocks.func_blocks.interface.func_protocols import FuncUnit, FuncBlock
-from transactron.lib import FIFO, Collector, Connect
+from transactron import Method, TModule, def_method
+from coreblocks.func_blocks.interface.func_protocols import FuncBlock
+from transactron.lib import FIFO, Collector, Connect, MethodProduct
 from coreblocks.arch import OpType
 from coreblocks.interface.layouts import RSLayouts, FuncUnitLayouts
 
@@ -34,7 +34,7 @@ class RSFuncBlock(FuncBlock, Elaboratable):
     def __init__(
         self,
         gen_params: GenParams,
-        func_units: Iterable[tuple[FuncUnit, set[OpType], bool]],
+        func_units: Iterable[FunctionalComponentParams],
         rs_entries: int,
         rs_number: int,
         rs_type: type[RSBase],
@@ -56,11 +56,11 @@ class RSFuncBlock(FuncBlock, Elaboratable):
         self.gen_params = gen_params
         self.rs_entries = rs_entries
         self.rs_type = rs_type
-        self.rs_entries_bits = (rs_entries - 1).bit_length()
         self.rs_number = rs_number
-        self.rs_layouts = gen_params.get(RSLayouts, rs_entries_bits=self.rs_entries_bits)
+        self.rs_layouts = gen_params.get(RSLayouts, rs_entries=rs_entries)
         self.fu_layouts = gen_params.get(FuncUnitLayouts)
         self.func_units = list(func_units)
+        self.func_instances = [params.get_module(gen_params) for params in func_units]
 
         self.insert = Method(i=self.rs_layouts.rs.insert_in)
         self.select = Method(o=self.rs_layouts.rs.select_out)
@@ -70,37 +70,52 @@ class RSFuncBlock(FuncBlock, Elaboratable):
     def elaborate(self, platform):
         m = TModule()
 
+        rs_ways = 2 if any(params.bypass for params in self.func_units) else 1
+
         m.submodules.rs = self.rs = self.rs_type(
             gen_params=self.gen_params,
             rs_entries=self.rs_entries,
             rs_number=self.rs_number,
-            ready_for=(optypes for _, optypes, _ in self.func_units),
+            rs_ways=rs_ways,
+            ready_for=(params.get_optypes() for params in self.func_units),
         )
 
         targets: list[Method] = []
 
-        for n, (func_unit, _, result_fifo) in enumerate(self.func_units):
+        for n, (params, func_unit) in enumerate(zip(self.func_units, self.func_instances)):
             wakeup_select = WakeupSelect(
                 gen_params=self.gen_params,
                 get_ready=self.rs.get_ready_list[n],
                 take_row=self.rs.take,
                 issue=func_unit.issue,
             )
-            if result_fifo:
+            if params.result_fifo:
                 connector = FIFO(self.gen_params.get(FuncUnitLayouts).push_result, 2)
             else:
                 connector = Connect(self.gen_params.get(FuncUnitLayouts).push_result)
             m.submodules[f"func_unit_{n}"] = func_unit
             m.submodules[f"wakeup_select_{n}"] = wakeup_select
             m.submodules[f"connector_{n}"] = connector
-            func_unit.push_result.proxy(m, connector.write)
+
+            result_method = connector.write
+            if params.bypass:
+                bypass_method = Method.like(result_method)
+
+                @def_method(m, bypass_method)
+                def _(rob_id, result, rp_dst, exception):
+                    with m.If(~exception):
+                        self.rs.update[1](m, reg_id=rp_dst, reg_val=result)
+
+                result_method = MethodProduct([result_method, bypass_method]).use(m)
+
+            func_unit.push_result.proxy(m, result_method)
             targets.append(connector.read)
 
         m.submodules.collector = collector = Collector(targets)
 
         self.insert.proxy(m, self.rs.insert)
         self.select.proxy(m, self.rs.select)
-        self.update.proxy(m, self.rs.update)
+        self.update.proxy(m, self.rs.update[0])
         self.get_result.proxy(m, collector.method)
 
         return m
@@ -114,10 +129,10 @@ class RSBlockComponent(BlockComponentParams):
     rs_type: type[RSBase] = RS
 
     def get_module(self, gen_params: GenParams) -> FuncBlock:
-        modules = list((u.get_module(gen_params), u.get_optypes(), u.result_fifo) for u in self.func_units)
+        #        modules = list((u.get_module(gen_params), u.get_optypes(), u.result_fifo) for u in self.func_units)
         rs_unit = RSFuncBlock(
             gen_params=gen_params,
-            func_units=modules,
+            func_units=self.func_units,
             rs_entries=self.rs_entries,
             rs_number=self.rs_number,
             rs_type=self.rs_type,

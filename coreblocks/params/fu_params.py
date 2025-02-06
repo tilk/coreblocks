@@ -40,6 +40,7 @@ class BlockComponentParams(ABC):
 class FunctionalComponentParams(ABC):
     _: KW_ONLY
     result_fifo: bool = False
+    bypass: bool = False
     decoder_manager: "DecoderManager" = field(init=False)
 
     def __post_init__(self):
