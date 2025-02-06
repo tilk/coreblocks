@@ -6,7 +6,7 @@ from coreblocks.func_blocks.interface.func_protocols import FuncBlock, FuncUnit
 from coreblocks.arch.isa import Extension, extension_implications
 from coreblocks.arch.optypes import optypes_required_by_extensions, OpType
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 
 if TYPE_CHECKING:
@@ -40,6 +40,7 @@ class BlockComponentParams(ABC):
 class FunctionalComponentParams(ABC):
     _: KW_ONLY
     result_fifo: bool = False
+    fixed_pipeline: Optional[int] = None
     decoder_manager: "DecoderManager" = field(init=False)
 
     def __post_init__(self):
