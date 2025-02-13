@@ -55,10 +55,12 @@ def min_value(m: ModuleLike, values: Iterable[Value]) -> Value:
     values = new_values
 
     for i in reversed(range(0, len(result))):
-        m.d.comb += result[i].eq(Cat(value[i] for value in values).all())
+        res = Signal()
+        m.d.comb += res.eq(Cat(value[i] for value in values).all())
+        m.d.comb += result[i].eq(res)
         new_values = list(Signal.like(result) for _ in values)
         for sig, value in zip(new_values, values):
-            m.d.comb += sig.eq(Mux(value[i] & ~result[i], -1, value))
+            m.d.comb += sig.eq(Mux(value[i] & ~res, -1, value))
         values = new_values
 
     return result
