@@ -117,7 +117,10 @@ class ExceptionInformationRegister(Elaboratable):
                 with m.If(valid):
                     m.d.comb += rob_position.eq(arg.rob_id - rob_start_idx)
             min_rob_position = min_value(m, rob_positions)
-            is_min = Cat(min_rob_position == rob_position for rob_position in rob_positions)
+            is_min = Cat(
+                valid & (min_rob_position == rob_position)
+                for rob_position, valid in zip(rob_positions, iter(valid_bits))
+            )
             ret = Signal.like(args[0])
             for i in OneHotSwitchDynamic(m, is_min):
                 m.d.comb += ret.eq(args[i])
