@@ -1,7 +1,6 @@
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from amaranth import *
-from amaranth_types import ModuleLike
-from transactron.utils import MethodStruct, OneHotSwitchDynamic
+from transactron.utils import MethodStruct, OneHotSwitchDynamic, min_value
 from transactron.utils.dependencies import DependencyContext
 from coreblocks.params.genparams import GenParams
 
@@ -41,29 +40,6 @@ def should_update_prioriy(m: TModule, current_cause: Value, new_cause: Value) ->
         m.d.comb += _update.eq(1)
 
     return _update
-
-
-def min_value(m: ModuleLike, values: Iterable[Value]) -> Value:
-    values = list(values)
-    assert all(not value.shape().signed for value in values)  # signed currently unsupported
-    result = Signal(max(len(value) for value in values))
-
-    # extend inputs to constant width
-    new_values = list(Signal.like(result) for _ in values)
-    for sig, value in zip(new_values, values):
-        m.d.comb += sig.eq(value)
-    values = new_values
-
-    for i in reversed(range(0, len(result))):
-        res = Signal()
-        m.d.comb += res.eq(Cat(value[i] for value in values).all())
-        m.d.comb += result[i].eq(res)
-        new_values = list(Signal.like(result) for _ in values)
-        for sig, value in zip(new_values, values):
-            m.d.comb += sig.eq(Mux(value[i] & ~res, -1, value))
-        values = new_values
-
-    return result
 
 
 class ExceptionInformationRegister(Elaboratable):
