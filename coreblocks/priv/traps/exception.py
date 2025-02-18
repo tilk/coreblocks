@@ -1,11 +1,13 @@
+from collections.abc import Sequence
 from amaranth import *
+from transactron.utils import MethodStruct, OneHotSwitchDynamic, min_value
 from transactron.utils.dependencies import DependencyContext
 from coreblocks.params.genparams import GenParams
 
 from coreblocks.arch import ExceptionCause
 from coreblocks.interface.layouts import ExceptionRegisterLayouts
 from coreblocks.interface.keys import ExceptionReportKey
-from transactron.core import TModule, def_method, Method
+from transactron.core import TModule, Transaction, def_method, Method
 from transactron.lib.connectors import ConnectTrans
 from transactron.lib.fifo import BasicFifo
 
@@ -63,7 +65,7 @@ class ExceptionInformationRegister(Elaboratable):
 
         # Break long combinational paths from single-cycle FUs
         self.fu_report_fifo = BasicFifo(self.layouts.report, 2)
-        self.report = self.fu_report_fifo.write
+        self.report = Method.like(self.fu_report_fifo.write)
         dm = DependencyContext.get()
         dm.add_dependency(ExceptionReportKey(), self.report)
 
@@ -82,6 +84,28 @@ class ExceptionInformationRegister(Elaboratable):
         m.submodules.report_fifo = self.fu_report_fifo
         m.submodules.report_connector = ConnectTrans(self.fu_report_fifo.read, report)
 
+        with Transaction().body(m):
+            rob_start_idx = self.rob_get_indices(m).start
+
+        def min_combiner(m: Module, args: Sequence[MethodStruct], valid_bits: Value):
+            rob_positions = [Signal(self.gen_params.rob_entries_bits, init=-1) for _ in args]
+            for rob_position, arg, valid in zip(rob_positions, args, iter(valid_bits)):
+                with m.If(valid):
+                    m.d.comb += rob_position.eq(arg.rob_id - rob_start_idx)
+            min_rob_position = min_value(m, rob_positions)
+            is_min = Cat(
+                valid & (min_rob_position == rob_position)
+                for rob_position, valid in zip(rob_positions, iter(valid_bits))
+            )
+            ret = Signal.like(args[0])
+            for i in OneHotSwitchDynamic(m, is_min):
+                m.d.comb += ret.eq(args[i])
+            return ret
+
+        @def_method(m, self.report, nonexclusive=True, combiner=min_combiner)
+        def _(arg):
+            self.fu_report_fifo.write(m, arg)
+
         @def_method(m, report)
         def _(cause, rob_id, pc, mtval):
             should_write = Signal()
@@ -91,7 +115,6 @@ class ExceptionInformationRegister(Elaboratable):
                 # in Retirement.
                 m.d.comb += should_write.eq(0)
             with m.Elif(self.valid):
-                rob_start_idx = self.rob_get_indices(m).start
                 m.d.comb += should_write.eq(
                     (rob_id - rob_start_idx).as_unsigned() < (self.rob_id - rob_start_idx).as_unsigned()
                 )
@@ -116,5 +139,6 @@ class ExceptionInformationRegister(Elaboratable):
         @def_method(m, self.clear)
         def _():
             m.d.sync += self.valid.eq(0)
+            self.fu_report_fifo.clear(m)
 
         return m
