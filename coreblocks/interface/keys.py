@@ -1,9 +1,10 @@
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable, Concatenate
 
+from transactron.utils import MethodStruct
 from transactron.lib.dependencies import SimpleKey, UnifierKey, ListKey
-from transactron import Method
-from transactron.lib import Collector
+from transactron.lib.transformers import MethodProduct
+from transactron import Method, TModule
 from coreblocks.peripherals.bus_adapter import BusMasterInterface
 from amaranth import Signal
 
@@ -16,7 +17,7 @@ __all__ = [
     "InstructionPrecommitKey",
     "BranchVerifyKey",
     "PredictedJumpTargetKey",
-    "FetchResumeKey",
+    "UnsafeInstructionResolvedKey",
     "ExceptionReportKey",
     "CSRInstancesKey",
     "AsyncInterruptInsertSignalKey",
@@ -24,6 +25,7 @@ __all__ = [
     "CoreStateKey",
     "CSRListKey",
     "FlushICacheKey",
+    "RollbackKey",
 ]
 
 
@@ -48,12 +50,24 @@ class PredictedJumpTargetKey(SimpleKey[tuple[Method, Method]]):
 
 
 @dataclass(frozen=True)
-class FetchResumeKey(UnifierKey, unifier=Collector):
+class UnsafeInstructionResolvedKey(SimpleKey[Method]):
+    """
+    Represents a method that is called by functional units when
+    an unsafe instruction is executed and the core should be resumed.
+    """
+
     pass
 
 
 @dataclass(frozen=True)
-class ExceptionReportKey(SimpleKey[Method]):
+class ExceptionReportKey(SimpleKey[Callable[[], Callable[Concatenate[TModule, ...], MethodStruct]]]):
+    """
+    Used to report exception details to the `ExceptionInformationRegister`.
+    Needs to be called once in the component's constructor. The callable
+    returned acts like a method call and can be used multiple times
+    in `elaborate`.
+    """
+
     pass
 
 
@@ -91,4 +105,14 @@ class CSRListKey(ListKey["CSRRegister"]):
 
 @dataclass(frozen=True)
 class FlushICacheKey(SimpleKey[Method]):
+    pass
+
+
+@dataclass(frozen=True)
+class RollbackKey(UnifierKey, unifier=MethodProduct):
+    """
+    Collects method that want to be notifed about tag rollback event.
+    Expected layout is `RATLayouts.rollback_in`.
+    """
+
     pass
