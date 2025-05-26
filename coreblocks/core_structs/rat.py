@@ -1,6 +1,7 @@
 from amaranth import *
 from transactron import Method, Transaction, def_method, TModule
-from transactron.lib.storage import AsyncMemoryBank
+from transactron.lib.reqres import Serializer
+from transactron.lib.storage import MemoryBank
 from coreblocks.interface.layouts import RATLayouts
 from coreblocks.params import GenParams
 
@@ -31,15 +32,23 @@ class RRAT(Elaboratable):
     def __init__(self, *, gen_params: GenParams):
         self.gen_params = gen_params
 
-        self.entries = AsyncMemoryBank(shape=self.gen_params.phys_regs_bits, depth=self.gen_params.isa.reg_cnt)
+        self.entries = MemoryBank(shape=self.gen_params.phys_regs_bits, depth=self.gen_params.isa.reg_cnt)
 
         layouts = gen_params.get(RATLayouts)
-        self.commit = Method(i=layouts.rrat_commit_in, o=layouts.rrat_commit_out)
-        self.peek = Method(i=layouts.rrat_peek_in, o=layouts.rrat_peek_out)
+        self.commit = Method(i=layouts.rrat_commit_in)
+        self.commit_result = Method(o=layouts.rrat_commit_out)
+        self.peek = Method(i=layouts.rrat_peek_in)
+        self.peek_result = Method(o=layouts.rrat_peek_out)
 
     def elaborate(self, platform):
         m = TModule()
+
         m.submodules.entries = self.entries
+        m.submodules.serializer = serializer = Serializer(
+            port_count=2,
+            serialized_req_method=self.entries.read_req[0],
+            serialized_resp_method=self.entries.read_resp[0],
+        )
 
         initialized = Signal()
         rl_idx = Signal(range(self.gen_params.isa.reg_cnt))
@@ -52,10 +61,18 @@ class RRAT(Elaboratable):
         @def_method(m, self.commit, ready=initialized)
         def _(rp_dst: Value, rl_dst: Value):
             self.entries.write(m, addr=rl_dst, data=rp_dst)
-            return {"old_rp_dst": self.entries.read(m, addr=rl_dst).data}
+            serializer.serialize_in[0](m, addr=rl_dst)
+
+        @def_method(m, self.commit_result)
+        def _():
+            return {"old_rp_dst": serializer.serialize_out[0](m).data}
 
         @def_method(m, self.peek, ready=initialized)
         def _(rl_dst: Value):
-            return self.entries.read(m, addr=rl_dst).data
+            serializer.serialize_in[1](m, addr=rl_dst)
+
+        @def_method(m, self.peek_result)
+        def _():
+            return {"old_rp_dst": serializer.serialize_out[1](m).data}
 
         return m
