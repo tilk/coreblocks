@@ -1,5 +1,7 @@
 from amaranth import *
+from transactron.lib.fifo import BasicFifo
 from coreblocks.interface.layouts import (
+    CommonLayoutFields,
     CoreInstructionCounterLayouts,
     ExceptionRegisterLayouts,
     FetchLayouts,
@@ -30,10 +32,10 @@ class Retirement(Elaboratable):
         self.gen_params = gen_params
         self.rob_peek = Method(o=gen_params.get(ROBLayouts).peek_layout)
         self.rob_retire = Method()
-        self.r_rat_commit = Method(
-            i=gen_params.get(RATLayouts).rrat_commit_in, o=gen_params.get(RATLayouts).rrat_commit_out
-        )
-        self.r_rat_peek = Method(i=gen_params.get(RATLayouts).rrat_peek_in, o=gen_params.get(RATLayouts).rrat_peek_out)
+        self.r_rat_commit = Method(i=gen_params.get(RATLayouts).rrat_commit_in)
+        self.r_rat_commit_result = Method(o=gen_params.get(RATLayouts).rrat_commit_out)
+        self.r_rat_peek = Method(i=gen_params.get(RATLayouts).rrat_peek_in)
+        self.r_rat_peek_result = Method(o=gen_params.get(RATLayouts).rrat_peek_out)
         self.free_rf_put = Method(i=[("ident", range(gen_params.phys_regs))])
         self.rf_free = Method(i=gen_params.get(RFLayouts).rf_free)
         self.exception_cause_get = Method(o=gen_params.get(ExceptionRegisterLayouts).get)
@@ -68,6 +70,9 @@ class Retirement(Elaboratable):
 
         m.submodules += [self.perf_instr_ret, self.perf_trap_latency]
 
+        fields = self.gen_params.get(CommonLayoutFields)
+        m.submodules.flush_fifo = flush_fifo = BasicFifo([fields.rl_dst, fields.rp_dst], 2)
+
         m_csr = self.dependency_manager.get_dependency(CSRInstancesKey()).m_mode
         m.submodules.instret_csr = self.instret_csr
 
@@ -81,33 +86,39 @@ class Retirement(Elaboratable):
                 self.free_rf_put(m, rp_dst)
 
         def retire_instr(rob_entry):
-            # set rl_dst -> rp_dst in R-RAT
-            rat_out = self.r_rat_commit(m, rl_dst=rob_entry.rob_data.rl_dst, rp_dst=rob_entry.rob_data.rp_dst)
-
-            # free old rp_dst from overwritten R-RAT mapping
-            free_phys_reg(rat_out.old_rp_dst)
+            # set rl_dst -> rp_dst in R-RAT, old physical register is freed in the next cycle
+            self.r_rat_commit(m, rl_dst=rob_entry.rob_data.rl_dst, rp_dst=rob_entry.rob_data.rp_dst)
 
             self.instret_csr.increment(m)
             self.perf_instr_ret.incr(m)
 
         def flush_instr(rob_entry):
             # get original rp_dst mapped to instruction rl_dst in R-RAT
-            rat_out = self.r_rat_peek(m, rl_dst=rob_entry.rob_data.rl_dst)
-
-            # free the "new" instruction rp_dst - result is flushed
-            free_phys_reg(rob_entry.rob_data.rp_dst)
-
-            # restore original rl_dst->rp_dst mapping in F-RAT
-            self.c_rat_restore(m, rl_dst=rob_entry.rob_data.rl_dst, rp_dst=rat_out.old_rp_dst)
+            self.r_rat_peek(m, rl_dst=rob_entry.rob_data.rl_dst)
+            flush_fifo.write(m, rl_dst=rob_entry.rob_data.rl_dst, rp_dst=rob_entry.rob_data.rp_dst)
 
         retire_valid = Signal()
-        with Transaction().body(m) as validate_transaction:
+        with Transaction(name="validate").body(m) as validate_transaction:
             # Ensure that when exception is processed, correct entry is alredy in ExceptionCauseRegister
             rob_entry = self.rob_peek(m)
             ecr_entry = self.exception_cause_get(m)
             m.d.comb += retire_valid.eq(
                 ~rob_entry.exception | (rob_entry.exception & ecr_entry.valid & (ecr_entry.rob_id == rob_entry.rob_id))
             )
+
+        with Transaction(name="commit").body(m):
+            rat_out = self.r_rat_commit_result(m)
+            free_phys_reg(rat_out.old_rp_dst)
+
+        with Transaction(name="flush").body(m):
+            rat_out = self.r_rat_peek_result(m)
+            fifo_out = flush_fifo.read(m)
+
+            # free the "new" instruction rp_dst - result is flushed
+            free_phys_reg(fifo_out.rp_dst)
+
+            # restore original rl_dst->rp_dst mapping in F-RAT
+            self.c_rat_restore(m, rl_dst=fifo_out.rl_dst, rp_dst=rat_out.old_rp_dst)
 
         continue_pc_override = Signal()
         continue_pc = Signal(self.gen_params.isa.xlen)
