@@ -6,6 +6,7 @@ from coreblocks.params.configurations import test_core_config
 
 from collections import deque
 from random import Random
+import pytest
 
 
 class TestFrontendRegisterAliasTable(TestCaseWithSimulator):
@@ -72,11 +73,12 @@ class TestRetirementRegisterAliasTable(TestCaseWithSimulator):
 
             self.expected_entries[to_execute["rl"]] = to_execute["rp"]
 
-    def test_single(self):
+    @pytest.mark.parametrize("ways", [1, 2])
+    def test_single(self, ways: int):
         self.rand = Random(0)
         self.test_steps = 2000
         self.gen_params = GenParams(test_core_config.replace(phys_regs_bits=5, rob_entries_bits=6))
-        m = SimpleTestCircuit(RRAT(gen_params=self.gen_params))
+        m = SimpleTestCircuit(RRAT(gen_params=self.gen_params, ways=ways))
         self.m = m
 
         self.log_regs = self.gen_params.isa.reg_cnt

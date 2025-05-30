@@ -1,5 +1,5 @@
 from amaranth import *
-from transactron import Method, Transaction, def_method, TModule
+from transactron import Method, Methods, Transaction, def_method, def_methods, TModule
 from transactron.lib.storage import AsyncMemoryBank
 from coreblocks.interface.layouts import RATLayouts
 from coreblocks.params import GenParams
@@ -28,14 +28,14 @@ class FRAT(Elaboratable):
 
 
 class RRAT(Elaboratable):
-    def __init__(self, *, gen_params: GenParams):
+    def __init__(self, *, gen_params: GenParams, ways: int=1):
         self.gen_params = gen_params
 
-        self.entries = AsyncMemoryBank(shape=self.gen_params.phys_regs_bits, depth=self.gen_params.isa.reg_cnt)
+        self.entries = AsyncMemoryBank(shape=self.gen_params.phys_regs_bits, depth=self.gen_params.isa.reg_cnt, read_ports=ways, write_ports=ways)
 
         layouts = gen_params.get(RATLayouts)
-        self.commit = Method(i=layouts.rrat_commit_in, o=layouts.rrat_commit_out)
-        self.peek = Method(i=layouts.rrat_peek_in, o=layouts.rrat_peek_out)
+        self.commit = Methods(ways, i=layouts.rrat_commit_in, o=layouts.rrat_commit_out)
+        self.peek = Methods(ways, i=layouts.rrat_peek_in, o=layouts.rrat_peek_out)
 
     def elaborate(self, platform):
         m = TModule()
@@ -49,13 +49,13 @@ class RRAT(Elaboratable):
             with m.If(rl_idx == self.gen_params.isa.reg_cnt - 1):
                 m.d.sync += initialized.eq(1)
 
-        @def_method(m, self.commit, ready=initialized)
-        def _(rp_dst: Value, rl_dst: Value):
-            self.entries.write(m, addr=rl_dst, data=rp_dst)
-            return {"old_rp_dst": self.entries.read(m, addr=rl_dst).data}
+        @def_methods(m, self.commit, ready=lambda _: initialized)
+        def _(k: int, rp_dst: Value, rl_dst: Value):
+            self.entries.write[k](m, addr=rl_dst, data=rp_dst)
+            return {"old_rp_dst": self.entries.read[k](m, addr=rl_dst).data}
 
-        @def_method(m, self.peek, ready=initialized)
-        def _(rl_dst: Value):
-            return self.entries.read(m, addr=rl_dst).data
+        @def_methods(m, self.peek, ready=lambda _: initialized)
+        def _(k: int, rl_dst: Value):
+            return self.entries.read[k](m, addr=rl_dst).data
 
         return m
