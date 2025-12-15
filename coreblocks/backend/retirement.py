@@ -23,6 +23,29 @@ from coreblocks.arch.isa_consts import TrapVectorMode
 
 
 class Retirement(Elaboratable):
+    """Retirement stage.
+
+    The main job of the retirement stage is to perform core cleanup after
+    instructions finish execution. Instructions are removed from the
+    :py:class:`reorder buffer <coreblocks.core_structs.rob.ReorderBuffer>`
+    in program order, and physical registers are freed in the
+    :py:class:`register file`<coreblocks.core_structs.rf.RegisterFile>`
+    when their values are no longer needed.
+
+    Another job of the retirement stage is to make sure the core state
+    is consistent in the event a trap occurs. A trap can be caused by:
+
+    * An instruction raising some exception defined in the RISC-V spec.
+    * A jump misprediction, which is handled like an exception on the
+      mispredicted jump instruction.
+    * An external interrupt.
+
+    In case of a trap, instruction fetching is paused, while the changes
+    to the core state caused by the instructions after the trapping one are
+    rolled back. Fetching then resumes from a different program counter
+    value, which depends on the type of trap.
+    """
+
     def __init__(
         self,
         gen_params: GenParams,
