@@ -15,7 +15,7 @@ from coreblocks.interface.keys import (
 )
 from coreblocks.params.genparams import GenParams
 from coreblocks.core_structs.crat import CheckpointRAT
-from coreblocks.core_structs.rat import RRAT
+from coreblocks.core_structs.rat import RRAT, DummyCRAT
 from coreblocks.core_structs.rob import ReorderBuffer
 from coreblocks.core_structs.rf import RegisterFile
 from coreblocks.priv.csr.csr_instances import CSRInstances
@@ -62,7 +62,8 @@ class Core(Component):
 
         self.rf_allocator = PriorityEncoderAllocator(gen_params.phys_regs, init=2**gen_params.phys_regs - 2)
 
-        self.CRAT = CheckpointRAT(gen_params=self.gen_params)
+        # self.CRAT = CheckpointRAT(gen_params=self.gen_params)
+        self.CRAT = DummyCRAT(gen_params=self.gen_params)
         self.RRAT = RRAT(gen_params=self.gen_params)
         self.RF = RegisterFile(
             gen_params=self.gen_params,
