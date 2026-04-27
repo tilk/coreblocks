@@ -23,7 +23,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-            python-version: '3.11'
+            python-version: '3.13'
 
       - name: Install Coreblocks dependencies
         run: |
@@ -138,7 +138,7 @@ jobs:
   run-riscof-tests:
     name: Run regression tests (riscv-arch-test)
     runs-on: ubuntu-22.04  # older version for compatibility with Docker image
-    container: ghcr.io/kuznia-rdzeni/verilator:v5.008-2023.11.19_v
+    container: ghcr.io/kuznia-rdzeni/verilator:v5.008-2023.13.19_v
     needs: [ build-riscof-tests, build-core ]
     timeout-minutes: 30
     steps:
@@ -153,7 +153,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-            python-version: '3.11'
+            python-version: '3.13'
 
       - name: Install Coreblocks dependencies
         run: |
@@ -246,7 +246,7 @@ jobs:
     name: Run regression tests (riscv-tests)
     runs-on: ubuntu-22.04  # older version for compatibility with Docker image
     timeout-minutes: 20
-    container: ghcr.io/kuznia-rdzeni/verilator:v5.008-2023.11.19_v
+    container: ghcr.io/kuznia-rdzeni/verilator:v5.008-2023.13.19_v
     needs: [ build-regression-tests, build-core ]
     steps:
       - name: Checkout
@@ -260,7 +260,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.13'
 
       - name: Install dependencies
         run: |
@@ -312,7 +312,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.13'
           cache: 'pip'
           cache-dependency-path: |
             pyproject.toml
@@ -343,7 +343,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.13'
           cache: 'pip'
           cache-dependency-path: |
             pyproject.toml
