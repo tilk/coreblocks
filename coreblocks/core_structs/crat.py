@@ -4,6 +4,7 @@ from amaranth.utils import ceil_log2
 
 from transactron.core import *
 from transactron.lib import logging
+from transactron.lib.allocators import CircularAllocator
 from transactron.lib.connectors import Pipe
 from transactron.lib.metrics import HwExpHistogram
 from transactron.lib.simultaneous import condition
@@ -92,11 +93,6 @@ class CheckpointRAT(Elaboratable):
         # Internal data structres
         # ------------------------
 
-        # Initialize with one allocated, active, but not checkpointed tag 0
-        # With current freeing mechanism one tag must always be allocated, so head==tail -> full
-        tags_head = Signal(self.gen_params.tag_bits, init=1)
-        tags_tail = Signal.like(tags_head, init=0)
-
         checkpoints_head = Signal(range(self.gen_params.checkpoint_count), init=0)
         checkpoints_tail = Signal.like(checkpoints_head)
         checkpoints_full = Signal()
@@ -122,10 +118,16 @@ class CheckpointRAT(Elaboratable):
         # Internal tag and checkpoint allocation
         # ---------------------------------------
 
-        allocate_tag = Method(i=[("active", 1)], o=[("tag", self.gen_params.tag_bits)])
+        m.submodules.tag_allocator = tag_allocator = CircularAllocator(2**self.gen_params.tag_bits)
 
-        next_tag = Signal.like(tags_head)
-        m.d.comb += next_tag.eq(tags_head + 1)
+        # Initialize with one allocated, active, but not checkpointed tag 0
+        # With current freeing mechanism one tag must always be allocated, so head==tail -> full
+        init = Signal()
+        with Transaction().body(m, ready=~init):
+            tag_allocator.alloc(m, count=1)
+            m.d.sync += init.eq(1)
+
+        allocate_tag = Method(i=[("active", 1)], o=[("tag", self.gen_params.tag_bits)])
 
         next_checkpoint = Signal.like(checkpoints_head)
         m.d.comb += next_checkpoint.eq(mod_incr(checkpoints_head, self.gen_params.checkpoint_count))
@@ -136,13 +138,12 @@ class CheckpointRAT(Elaboratable):
 
         active_tags_set_mask = Signal.like(active_tags, init=0)
 
-        @def_method(m, allocate_tag, ready=tags_head != tags_tail)
+        @def_method(m, allocate_tag)
         def _(active):
-            m.d.sync += tags_head.eq(next_tag)
-            m.d.comb += active_tags_set_mask.eq(active << tags_head)
-
-            log.debug(m, True, "tag allocated 0x{:x}", tags_head)
-            return tags_head
+            tag = tag_allocator.alloc(m, count=1).idents[0]
+            m.d.comb += active_tags_set_mask.eq(active << tag)
+            log.debug(m, True, "tag allocated 0x{:x}", tag)
+            return {"tag": tag}
 
         allocate_checkpoint = Method(o=[("checkpoint", range(self.gen_params.checkpoint_count))])
 
@@ -352,13 +353,19 @@ class CheckpointRAT(Elaboratable):
             m.d.sync += rollback_tag_s1.eq(tag)
 
             # Invalidate tags on wrong speculaton path (suffix), but don't free them for instruction validity tracking
-            with m.If((tag + 1 == tags_tail)):
+            tags_tail = tag_allocator.start_idx
+            with m.If(((tag + 1)[: self.gen_params.tag_bits] == tags_tail)):
                 log.debug(m, True, "rollback to 0x{:x}. no tags to invalidate", tag)
             with m.Else():
                 invalidate_mask = cyclic_mask(2**self.gen_params.tag_bits, tag + 1, tags_tail - 1)
                 m.d.comb += active_tags_reset_mask_0.eq(invalidate_mask)
                 log.debug(
-                    m, True, "rollback to 0x{:x}. invalidate tags from 0x{:x} to 0x{:x}", tag, tag + 1, tags_tail - 1
+                    m,
+                    True,
+                    "rollback to 0x{:x}. invalidate tags from 0x{:x} to 0x{:x}",
+                    tag,
+                    (tag + 1)[: self.gen_params.tag_bits],
+                    tags_tail - 1,
                 )
 
             log.assertion(m, ((active_tags & checkpointed_tags) & (1 << tag)).any(), "rollback to illegal tag")
@@ -403,10 +410,9 @@ class CheckpointRAT(Elaboratable):
             # If we free a tag, it means that we have retired a next one (tag+1).
             # Tag is no longer referenced in core, so it can be freed.
 
-            freed_tag = tags_tail
+            freed_tag = tag_allocator.free(m, count=1).idents[0]
 
             m.d.comb += active_tags_reset_mask_1.eq(1 << freed_tag)
-            m.d.sync += tags_tail.eq(freed_tag + 1)
 
             # deallocate physical checkpoints (but not tags) associated with freed tag
             with m.If(((checkpointed_tags & active_tags) & (1 << freed_tag)).any()):
@@ -420,7 +426,6 @@ class CheckpointRAT(Elaboratable):
             m.d.comb += checkpointed_tags_reset_mask_1.eq(1 << freed_tag)
 
             log.debug(m, True, "freed tag 0x{:x}", freed_tag)
-            log.assertion(m, (tags_tail + 1) != tags_head, "tag free underflow")
 
         # -----
         # Misc
@@ -452,15 +457,7 @@ class CheckpointRAT(Elaboratable):
         )
         if perf_tags.metrics_enabled():
             with Transaction().body(m):
-                num_tags = Signal(self.gen_params.tag_bits + 1)
-                m.d.comb += num_tags.eq(
-                    Mux(
-                        tags_tail < tags_head,
-                        tags_head - tags_tail,
-                        2**self.gen_params.tag_bits - tags_tail + tags_head,
-                    )
-                )
-                perf_tags.add(m, num_tags)
+                perf_tags.add(m, tag_allocator.allocated)
         if perf_tags_active.metrics_enabled():
             with Transaction().body(m):
                 perf_tags_active.add(m, popcount(active_tags))
