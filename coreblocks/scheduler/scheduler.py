@@ -2,13 +2,13 @@ from collections.abc import Sequence
 
 from amaranth import *
 
-from amaranth.lib.data import ArrayLayout, View
+from amaranth.lib.data import StructLayout, ArrayLayout, View
 from transactron import Method, Methods, Required, Transaction, TModule
 from transactron.lib import Connect, Pipe, WideFifo
 from transactron.lib.metrics import TaggedCounter
 from transactron.lib.pipeline import PipelineBuilder
 from transactron.utils import OneHotMux, logging, assign, AssignType, make_layout
-from transactron.utils.amaranth_ext.data import transpose
+from transactron.utils.amaranth_ext.data import transpose, transpose_layout, data_as_dict
 from transactron.utils.dependencies import DependencyContext
 
 from transactron.evlog import EventSource
@@ -130,21 +130,24 @@ class Scheduler(Elaboratable):
         pipeline1 = PipelineBuilder()
         pipeline2 = PipelineBuilder()
 
+        width = self.gen_params.frontend_superscalarity
+
         m.submodules.rob_alloc_out_buf = rob_alloc_out_buf = WideFifo(
             self.layouts.rs_select_in_data,
-            2 * self.gen_params.frontend_superscalarity,
-            self.gen_params.frontend_superscalarity,
+            2 * width,
+            width,
         )
 
         m.submodules += [self.perf_rs_selection_count]
 
-        @pipeline1.stage(m)
+        @pipeline1.stage(m, o=StructLayout({"count": range(width+1), **transpose_layout(self.layouts.reg_alloc_in.members["data"]).members}))
         def _():
-            return transpose(self.get_instr(m))
+            instrs = self.get_instr(m)
+            return {"count": instrs.count, **data_as_dict(transpose(instrs.data))}
 
-        @pipeline1.stage(m)
+        @pipeline1.stage(m, o=[("rp_dst", ArrayLayout(self.gen_params.phys_regs_bits, width))])
         def reg_alloc(count, ftq_ptr, ftq_offset, regs_l):
-            regs_p = Signal(ArrayLayout(make_layout(fields.rp_dst), self.gen_params.frontend_superscalarity))
+            rp_dst = Signal(ArrayLayout(self.gen_params.phys_regs_bits, width))
 
             for i in range(self.gen_params.frontend_superscalarity):
                 evlog.emit(
@@ -154,13 +157,13 @@ class Scheduler(Elaboratable):
                 )
 
                 with m.If((i < count) & (regs_l[i].rl_dst != 0)):
-                    m.d.av_comb += regs_p[i].rp_dst.eq(self.get_free_reg[i](m).ident)
+                    m.d.av_comb += rp_dst[i].eq(self.get_free_reg[i](m).ident)
 
-            return {"regs_p": regs_p}
+            return {"rp_dst": rp_dst}
 
         # This could be ideally changed to Connect, but unfortunately causes comb loop
 
-        @pipeline1.stage(m)
+        @pipeline1.stage(m, o=[("tag", _), ("tag_increment", _), ("commit_checkpoint", _)])
         def instr_tag(count, rollback_tag, rollback_tag_v, commit_checkpoint):
             idx = Signal(range(self.gen_params.frontend_superscalarity))
             m.d.av_comb += idx.eq(count - 1)
@@ -182,11 +185,11 @@ class Scheduler(Elaboratable):
             # Jump insn always last in group - commit_checkpoint is related to it
             return {"tag": tag_out.tag, "tag_increment": tag_increment, "commit_checkpoint": tag_out.commit_checkpoint}
 
-        @pipeline1.stage(m)
-        def renaming(count, tag, commit_checkpoint, regs_l, regs_p):
-            regs_p_out = Signal(
+        @pipeline1.stage(m, o=transpose_layout(ArrayLayout(make_layout(fields.regs_p), width)))
+        def renaming(count, tag, commit_checkpoint, regs_l, rp_dst):
+            regs_p = Signal(
                 ArrayLayout(
-                    make_layout(fields.rp_s1, fields.rp_s2, fields.rp_dst), self.gen_params.frontend_superscalarity
+                    make_layout(fields.rp_s1, fields.rp_s2, fields.rp_dst), width
                 )
             )
 
@@ -203,15 +206,15 @@ class Scheduler(Elaboratable):
                         rl_s1=regs_l[i].rl_s1,
                         rl_s2=regs_l[i].rl_s2,
                         rl_dst=regs_l[i].rl_dst,
-                        rp_dst=regs_p[i].rp_dst,
+                        rp_dst=rp_dst[i],
                     )
 
-                m.d.av_comb += regs_p_out[i].rp_dst.eq(regs_p[i].rp_dst)
-                m.d.av_comb += regs_p_out[i].rp_s1.eq(renamed_regs.rp_s1)
-                m.d.av_comb += regs_p_out[i].rp_s2.eq(renamed_regs.rp_s2)
+                m.d.av_comb += regs_p[i].rp_dst.eq(rp_dst[i])
+                m.d.av_comb += regs_p[i].rp_s1.eq(renamed_regs.rp_s1)
+                m.d.av_comb += regs_p[i].rp_s2.eq(renamed_regs.rp_s2)
 
             # TODO: regs_l can become smaller, maybe split it into subfields?
-            return {"regs_p": regs_p_out}
+            return {"regs_p": regs_p}
 
         @pipeline1.stage(m)
         def rob_alloc(count, ftq_ptr, ftq_offset, regs_l, regs_p, tag_increment, exec_fn):
