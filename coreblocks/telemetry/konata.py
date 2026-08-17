@@ -232,7 +232,6 @@ class KonataParser(EventConsumer):
                     continue
                 self._command(rec.cycle, "R", insn_id, 0, 1)
                 self.terminated.add(insn_id)
-        self.rob = {rob_id: insn_id for rob_id, insn_id in self.rob.items() if insn_id not in flushed}
 
     def _entries_before(self, ftq_ptr: int) -> list[int]:
         """Returns the live entries allocated strictly before `ftq_ptr`."""
