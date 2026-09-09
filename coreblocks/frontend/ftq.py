@@ -142,7 +142,7 @@ class FetchTargetQueue(Elaboratable):
         self.bpu_request = Method(i=bpu_layouts.request)
         self.bpu_response = Method(i=bpu_layouts.write_prediction)
         self.bpu_flush = Method()
-        self.check_stale = Methods(2, i=ifu_layouts.check_stale_req, o=ifu_layouts.check_stale_resp)
+        self.check_stale = Methods(3, i=ifu_layouts.check_stale_req, o=ifu_layouts.check_stale_resp)
         self.bpu_update = Method(i=bpu_layouts.update)
         self.read_prediction = Method(i=ifu_layouts.read_prediction_req, o=ifu_layouts.bpu_prediction)
 

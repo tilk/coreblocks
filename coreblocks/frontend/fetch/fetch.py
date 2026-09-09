@@ -86,7 +86,7 @@ class FetchUnit(Elaboratable):
         self.cont = Method(i=self.layouts.fetch_result)
         self.fetch_request = Method(i=self.layouts.fetch_request)
         self.fetch_writeback = Method(i=self.layouts.fetch_writeback)
-        self.check_stale = Methods(2, i=self.layouts.check_stale_req, o=self.layouts.check_stale_resp)
+        self.check_stale = Methods(3, i=self.layouts.check_stale_req, o=self.layouts.check_stale_resp)
         self.read_prediction = Method(i=self.layouts.read_prediction_req, o=self.layouts.bpu_prediction)
 
         self.flush = Method()
@@ -189,17 +189,20 @@ class FetchUnit(Elaboratable):
             m.d.av_comb += pmp_checker.paddr.eq(translated.paddr)
             m.d.av_comb += access_fault.eq(translated.access_fault | ~pmp_checker.result.x)
 
-            with m.If(~translated.page_fault & ~access_fault):
-                self.icache.issue_req(m, paddr=translated.paddr)
+            s0_stale = self.check_stale[0](m, ftq_ptr=request_id.ftq_ptr, fetch_gen=request_id.fetch_gen).stale
 
-            fetch_requests.write(
-                m,
-                pc=translated.vaddr,
-                access_fault=access_fault,
-                page_fault=translated.page_fault,
-                ftq_ptr=request_id.ftq_ptr,
-                fetch_gen=request_id.fetch_gen,
-            )
+            with m.If(~s0_stale):  # No need to request a stale block.
+                with m.If(~translated.page_fault & ~access_fault):
+                    self.icache.issue_req(m, paddr=translated.paddr)
+
+                fetch_requests.write(
+                    m,
+                    pc=translated.vaddr,
+                    access_fault=access_fault,
+                    page_fault=translated.page_fault,
+                    ftq_ptr=request_id.ftq_ptr,
+                    fetch_gen=request_id.fetch_gen,
+                )
 
         #
         # State passed between stage 1 and stage 2
@@ -240,7 +243,7 @@ class FetchUnit(Elaboratable):
         with Transaction(name="Fetch_Stage1").body(m):
             fetch_request = fetch_requests.read(m)
 
-            s1_stale = self.check_stale[0](m, ftq_ptr=fetch_request.ftq_ptr, fetch_gen=fetch_request.fetch_gen).stale
+            s1_stale = self.check_stale[1](m, ftq_ptr=fetch_request.ftq_ptr, fetch_gen=fetch_request.fetch_gen).stale
 
             # The address of the fetch block.
             fetch_block_addr = params.fb_addr(fetch_request.pc)
@@ -396,7 +399,7 @@ class FetchUnit(Elaboratable):
             # Predecode instructions
             predecoded_instr = [predecoders[i].predecode(m, instrs[i]) for i in range(fetch_width)]
 
-            s2_stale = self.check_stale[1](m, ftq_ptr=ftq_ptr, fetch_gen=s1_data.fetch_gen).stale
+            s2_stale = self.check_stale[2](m, ftq_ptr=ftq_ptr, fetch_gen=s1_data.fetch_gen).stale
 
             with m.If(~s2_stale):
                 prediction = self.read_prediction(m, ftq_ptr=ftq_ptr)
