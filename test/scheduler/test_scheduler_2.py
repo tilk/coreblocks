@@ -1,8 +1,11 @@
 from collections.abc import Sequence
 
 import pytest
+import hypothesis.strategies as st
+from hypothesis import given
 from transactron.lib.adapters import Adapter
 from transactron.utils import DependencyContext, ModuleConnector
+from transactron.testing.input_generation import amaranth_structs, shrinkable_lists
 from coreblocks.interface.keys import CoreStateKey
 from coreblocks.interface.layouts import RetirementLayouts
 from coreblocks.params import GenParams, configurations
@@ -18,7 +21,9 @@ from .test_scheduler import MockedBlockComponent
     (2, [{OpType.ARITHMETIC}, {OpType.ARITHMETIC, OpType.COMPARE}, {OpType.MUL, OpType.DIV_REM}])
 ])
 class TestScheduler2(TestCaseWithSimulator):  # TODO: rename
-    def test_scheduler(self, ways: int, optype_sets: Sequence[set[OpType]]):
+    @given(data=st.data())
+    def test_scheduler(self, ways: int, optype_sets: Sequence[set[OpType]], data: st.DataObject):
+        # Setup DUT
         gen_params = GenParams(configurations.test.replace(allow_partial_extensions=True, frontend_superscalarity=ways, func_units_config=tuple(MockedBlockComponent(optypes, rs_entries=4) for optypes in optype_sets)))
 
         sched = SimpleTestCircuit(Scheduler(gen_params=gen_params))
@@ -30,6 +35,19 @@ class TestScheduler2(TestCaseWithSimulator):  # TODO: rename
         dm.add_dependency(CoreStateKey(), core_state.adapter.iface)
 
         m = ModuleConnector(sched=sched, core_state=core_state)
+
+        # Generate inputs
+        optype_set = set.union(*optype_sets)
+
+        @st.composite
+        def instructions(draw: st.DrawFn):
+            count = draw(st.integers(1, ways))
+            insns = []
+            for _ in range(count):
+                insns.append(draw(amaranth_structs(sched.get_instr.adapter.iface.layout_in)))
+            return {"count": count, "data": insns}
+
+        inputs = data.draw(shrinkable_lists(100, instructions()))
 
         @def_method_mock(lambda: sched.get_instr)
         def get_instr():
