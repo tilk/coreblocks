@@ -1,17 +1,17 @@
 from collections.abc import Sequence
-
+from collections import deque
 import pytest
 import hypothesis.strategies as st
-from hypothesis import given
+from hypothesis import HealthCheck, given, settings
 from transactron.lib.adapters import Adapter
 from transactron.utils import DependencyContext, ModuleConnector
-from transactron.testing.input_generation import amaranth_structs, shrinkable_lists
+from transactron.testing.input_generation import amaranth_structs, draw_wait_geom, shrinkable_lists
 from coreblocks.interface.keys import CoreStateKey
-from coreblocks.interface.layouts import RetirementLayouts
+from coreblocks.interface.layouts import CommonLayoutFields, RetirementLayouts, SchedulerLayouts
 from coreblocks.params import GenParams, configurations
 from coreblocks.arch import OpType
 from coreblocks.scheduler.scheduler import Scheduler
-from transactron.testing import SimpleTestCircuit, TestCaseWithSimulator, TestbenchContext, TestbenchIO, def_method_mock
+from transactron.testing import SimpleTestCircuit, TestCaseWithSimulator, TestbenchContext, TestbenchIO, def_method_mock, MethodMock
 from .test_scheduler import MockedBlockComponent
 
 
@@ -22,6 +22,7 @@ from .test_scheduler import MockedBlockComponent
 ])
 class TestScheduler2(TestCaseWithSimulator):  # TODO: rename
     @given(data=st.data())
+    @settings(deadline=None, max_examples=3, suppress_health_check=[HealthCheck.large_base_example])
     def test_scheduler(self, ways: int, optype_sets: Sequence[set[OpType]], data: st.DataObject):
         # Setup DUT
         gen_params = GenParams(configurations.test.replace(allow_partial_extensions=True, frontend_superscalarity=ways, func_units_config=tuple(MockedBlockComponent(optypes, rs_entries=4) for optypes in optype_sets)))
@@ -37,23 +38,26 @@ class TestScheduler2(TestCaseWithSimulator):  # TODO: rename
         m = ModuleConnector(sched=sched, core_state=core_state)
 
         # Generate inputs
-        optype_set = set.union(*optype_sets)
+        layouts = gen_params.get(SchedulerLayouts)
+        fields = gen_params.get(CommonLayoutFields)
+        optype_set: list[OpType] = list(set.union(*optype_sets))
 
         @st.composite
         def instructions(draw: st.DrawFn):
             count = draw(st.integers(1, ways))
             insns = []
             for _ in range(count):
-                insns.append(draw(amaranth_structs(sched.get_instr.adapter.iface.layout_in)))
+                insns.append(draw(amaranth_structs(layouts.reg_alloc_in_data, exec_fn=amaranth_structs(fields.exec_fn_layout, op_type=st.sampled_from(optype_set)))))
             return {"count": count, "data": insns}
 
-        inputs = data.draw(shrinkable_lists(100, instructions()))
+        inputs = deque(data.draw(shrinkable_lists(50, instructions())))
 
-        @def_method_mock(lambda: sched.get_instr)
-        def get_instr():
-            pass
+        async def get_instr(ctx: TestbenchContext):
+            while inputs:
+                instrs = inputs.popleft()
+                await sched.get_instr.call(ctx, instrs)
+                await draw_wait_geom(ctx, data, 0.1)
 
-        print(ways, len(sched._dut.get_free_reg))
         for i in range(ways):
             @def_method_mock(lambda: sched.get_free_reg[i])
             def get_free_reg():
@@ -114,4 +118,5 @@ class TestScheduler2(TestCaseWithSimulator):  # TODO: rename
             pass
 
         with self.run_simulation(m) as sim:
+            sim.add_testbench(get_instr)
             sim.add_testbench(keep_alive)
