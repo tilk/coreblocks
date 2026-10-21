@@ -17,7 +17,6 @@ from transactron.testing import (
     TestbenchContext,
     TestbenchIO,
     def_method_mock,
-    MethodMock,
 )
 from .test_scheduler import MockedBlockComponent
 
@@ -123,7 +122,7 @@ class TestScheduler2(TestCaseWithSimulator):  # TODO: rename
         def rob_put(count, entries):
             pass
 
-        for i in range(ways):
+        for i in range(2 * ways):
 
             @def_method_mock(lambda: sched.rf_read_req[i])
             def rf_read_req():
