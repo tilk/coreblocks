@@ -4,7 +4,7 @@ import pytest
 import hypothesis.strategies as st
 from hypothesis import HealthCheck, given, settings
 from transactron.lib.adapters import Adapter
-from transactron.testing.method_mock import def_method_mocks
+from transactron.testing.method_mock import MethodMock, def_method_mocks
 from transactron.utils import DependencyContext, ModuleConnector
 from transactron.testing.input_generation import amaranth_structs, draw_wait_geom, shrinkable_lists
 from coreblocks.interface.keys import CoreStateKey
@@ -80,8 +80,6 @@ class TestScheduler2(TestCaseWithSimulator):  # TODO: rename
                 await sched.get_instr.call(ctx, instrs)
                 await draw_wait_geom(ctx, data, 0.1)
 
-        mocks = []
-
         @def_method_mocks(sched.get_free_reg)
         def get_free_reg(i):
             print("LOL")
@@ -111,20 +109,31 @@ class TestScheduler2(TestCaseWithSimulator):  # TODO: rename
         def rob_put(count, entries):
             pass
 
+        # RF read responses are available only after a corresponding read request
+        rf_pending: list[deque[int]] = [deque() for _ in sched.rf_read_req]
+
         @def_method_mocks(sched.rf_read_req)
-        def rf_read_req(i):
+        def rf_read_req(i, reg_id):
+            @MethodMock.effect
+            def _():
+                rf_pending[i].append(reg_id)
+
+        @def_method_mocks(sched.rf_read_resp, enable=lambda i: bool(rf_pending[i]))
+        def rf_read_resp(i, reg_id):
+            assert reg_id == rf_pending[i][0]
+
+            @MethodMock.effect
+            def _():
+                rf_pending[i].popleft()
+
+            return {"reg_val": 0, "valid": 1}
+
+        @def_method_mocks(sched.rs_select)
+        def rs_select(k):
             pass
 
-        @def_method_mocks(sched.rf_read_resp)
-        def rf_read_resp(i):
-            pass
-
-        @def_method_mock(sched.rs_select)
-        def rs_select(i):
-            pass
-
-        @def_method_mock(sched.rs_insert)
-        def rs_insert(i):
+        @def_method_mocks(sched.rs_insert)
+        def rs_insert(k, arg):
             pass
 
         @def_method_mock(core_state)
@@ -138,5 +147,3 @@ class TestScheduler2(TestCaseWithSimulator):  # TODO: rename
         with self.run_simulation(m, max_cycles=200) as sim:
             sim.add_testbench(get_instr)
             sim.add_testbench(keep_alive)
-            for mock in mocks:
-                sim.add_mock(mock())
