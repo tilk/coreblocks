@@ -4,6 +4,7 @@ import pytest
 import hypothesis.strategies as st
 from hypothesis import HealthCheck, given, settings
 from transactron.lib.adapters import Adapter
+from transactron.testing.method_mock import def_method_mocks
 from transactron.utils import DependencyContext, ModuleConnector
 from transactron.testing.input_generation import amaranth_structs, draw_wait_geom, shrinkable_lists
 from coreblocks.interface.keys import CoreStateKey
@@ -81,80 +82,52 @@ class TestScheduler2(TestCaseWithSimulator):  # TODO: rename
 
         mocks = []
 
-        for i in range(ways):
+        @def_method_mocks(sched.get_free_reg)
+        def get_free_reg(i):
+            print("LOL")
+            pass
 
-            @def_method_mock(lambda: sched.get_free_reg[i])
-            def get_free_reg():
-                print("LOL")
-                pass
+        @def_method_mocks(sched.crat_rename)
+        def crat_rename(i, rl_s1, rl_s2, rl_dst, rp_dst):
+            print("LOL")
+            pass
 
-            # TODO: def_method_mocks
-            mocks.append(get_free_reg)
-            del get_free_reg
-
-        for i in range(ways):
-
-            @def_method_mock(lambda: sched.crat_rename[i])
-            def crat_rename(rl_s1, rl_s2, rl_dst, rp_dst):
-                print("LOL")
-                pass
-
-            # TODO: def_method_mocks
-            mocks.append(crat_rename)
-            del crat_rename
-
-        @def_method_mock(lambda: sched.crat_tag)
+        @def_method_mock(sched.crat_tag)
         def crat_tag(rollback_tag, rollback_tag_v, commit_checkpoint):
             print("LOL2")
             pass
 
-        @def_method_mock(lambda: sched.crat_commit_checkpoint)
+        @def_method_mock(sched.crat_commit_checkpoint)
         def crat_commit_checkpoint(tag, commit_checkpoint):
             print("LOL2")
             pass
 
-        @def_method_mock(lambda: sched.crat_active_tags)
+        @def_method_mock(sched.crat_active_tags)
         def crat_active_tags():
             print("LOL3")
             pass
 
-        @def_method_mock(lambda: sched.rob_put)
+        @def_method_mock(sched.rob_put)
         def rob_put(count, entries):
             pass
 
-        for i in range(2 * ways):
+        @def_method_mocks(sched.rf_read_req)
+        def rf_read_req(i):
+            pass
 
-            @def_method_mock(lambda: sched.rf_read_req[i])
-            def rf_read_req():
-                pass
+        @def_method_mocks(sched.rf_read_resp)
+        def rf_read_resp(i):
+            pass
 
-            @def_method_mock(lambda: sched.rf_read_resp[i])
-            def rf_read_resp():
-                pass
+        @def_method_mock(sched.rs_select)
+        def rs_select(i):
+            pass
 
-            # TODO: def_method_mocks
-            mocks.append(rf_read_req)
-            mocks.append(rf_read_resp)
-            del rf_read_req
-            del rf_read_resp
+        @def_method_mock(sched.rs_insert)
+        def rs_insert(i):
+            pass
 
-        for i, _ in enumerate(optype_sets):
-
-            @def_method_mock(lambda: sched.rs_select[i])
-            def rs_select():
-                pass
-
-            @def_method_mock(lambda: sched.rs_insert[i])
-            def rs_insert():
-                pass
-
-            # TODO: find way to avoid this, these are possibly heterogenous
-            mocks.append(rs_select)
-            mocks.append(rs_insert)
-            del rs_select
-            del rs_insert
-
-        @def_method_mock(lambda: core_state)
+        @def_method_mock(core_state)
         def core_state_mock() -> dict[str, int]:
             # TODO: flushing test
             return {"flushing": 0}
@@ -162,7 +135,7 @@ class TestScheduler2(TestCaseWithSimulator):  # TODO: rename
         async def keep_alive(ctx: TestbenchContext):
             pass
 
-        with self.run_simulation(m) as sim:
+        with self.run_simulation(m, max_cycles=200) as sim:
             sim.add_testbench(get_instr)
             sim.add_testbench(keep_alive)
             for mock in mocks:
