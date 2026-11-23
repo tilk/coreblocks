@@ -1,10 +1,10 @@
 from amaranth import *
-from amaranth.lib.data import StructLayout, View
+from amaranth.lib.data import View
 
 from dataclasses import dataclass
 
 from transactron import Method, Methods, def_method, def_methods, Transaction, TModule
-from transactron.utils import assign
+from transactron.utils.amaranth_ext import Option
 from transactron.utils.data_repr import bits_from_int
 from transactron.utils.dependencies import DependencyContext
 
@@ -113,9 +113,10 @@ class CSRUnit(FuncBlock, Elaboratable):
 
         current_result = Signal(self.gen_params.isa.xlen)
 
-        instr = Signal(StructLayout(self.csr_layouts.rs.data_layout.members | {"valid": 1}))
+        current_instr = Option(self.csr_layouts.rs.data_layout).signal()
+        instr = current_instr.data
 
-        m.d.comb += ready_to_process.eq(instr.valid & (instr.rp_s1 == 0))
+        m.d.comb += ready_to_process.eq(current_instr.valid & (instr.rp_s1 == 0))
 
         # RISCV Zicsr spec Table 1.1
         should_read_csr = Signal()
@@ -193,12 +194,10 @@ class CSRUnit(FuncBlock, Elaboratable):
 
         @def_method(m, self.insert)
         def _(rs_entry_id, rs_data):
-            m.d.sync += assign(instr, rs_data)
+            m.d.sync += current_instr.data_eq(rs_data)
 
             with m.If(rs_data.exec_fn.op_type == OpType.CSR_IMM):  # Pass immediate as first operand
                 m.d.sync += instr.s1_val.eq(rs_data.imm[0:5])
-
-            m.d.sync += instr.valid.eq(1)
 
         @def_methods(m, self.update)
         def _(k: int, reg_id, reg_val):
@@ -215,7 +214,7 @@ class CSRUnit(FuncBlock, Elaboratable):
         @def_method(m, self.get_result, done | (ready_to_process & flush_instr))
         def _():
             m.d.sync += reserved.eq(0)
-            m.d.sync += instr.valid.eq(0)
+            m.d.sync += current_instr.data_eq(None)
             m.d.sync += done.eq(0)
 
             interrupt = self.dependency_manager.get_dependency(AsyncInterruptInsertSignalKey())
